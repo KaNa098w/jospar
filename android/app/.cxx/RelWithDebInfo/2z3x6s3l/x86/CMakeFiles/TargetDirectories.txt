@@ -1,0 +1,2 @@
+/Users/beyinfotech/Documents/jospar/jospar/android/app/.cxx/RelWithDebInfo/2z3x6s3l/x86/CMakeFiles/edit_cache.dir
+/Users/beyinfotech/Documents/jospar/jospar/android/app/.cxx/RelWithDebInfo/2z3x6s3l/x86/CMakeFiles/rebuild_cache.dir

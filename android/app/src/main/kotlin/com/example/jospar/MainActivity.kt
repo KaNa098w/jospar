@@ -1,4 +1,4 @@
-package com.example.jospar
+package com.beyinfotech.jospar
 
 import io.flutter.embedding.android.FlutterActivity
 

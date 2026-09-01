@@ -1,3 +1,6 @@
+// это больше ничего не должно содержать, кроме репозиториев,
+// поскольку все версии плагинов мы задали в settings.gradle
+
 allprojects {
     repositories {
         google()
@@ -8,8 +11,6 @@ allprojects {
 rootProject.buildDir = "../build"
 subprojects {
     project.buildDir = "${rootProject.buildDir}/${project.name}"
-}
-subprojects {
     project.evaluationDependsOn(":app")
 }
 

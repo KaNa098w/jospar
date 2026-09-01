@@ -1,30 +1,116 @@
-// This is a basic Flutter widget test.
-//
-// To perform an interaction with a widget in your test, use the WidgetTester
-// utility in the flutter_test package. For example, you can send tap and scroll
-// gestures. You can also use WidgetTester to find child widgets in the widget
-// tree, read text, and verify that the values of widget properties are correct.
-
 import 'package:flutter/material.dart';
 import 'package:flutter_test/flutter_test.dart';
-
-import 'package:jospar/main.dart';
+import 'package:jospar/app/screens/modal_sheet/action_panel.dart';
 
 void main() {
-  testWidgets('Counter increments smoke test', (WidgetTester tester) async {
-    // Build our app and trigger a frame.
-    await tester.pumpWidget(MyApp());
+  testWidgets('task action panel renders and saves', (tester) async {
+    var saved = false;
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ActionPanel(
+            selectedDate: DateTime(2026, 7, 29),
+            onDateChanged: (_) {},
+            onSave: () => saved = true,
+            taskId: null,
+            urgency: null,
+            onChangeUrgency: (_) {},
+          ),
+        ),
+      ),
+    );
 
-    // Verify that our counter starts at 0.
-    expect(find.text('0'), findsOneWidget);
-    expect(find.text('1'), findsNothing);
+    expect(find.byTooltip('Поделиться'), findsOneWidget);
+    final shareButton = tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byIcon(Icons.send),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(shareButton.onPressed, isNull);
 
-    // Tap the '+' icon and trigger a frame.
-    await tester.tap(find.byIcon(Icons.add));
+    await tester.tap(find.byIcon(Icons.arrow_upward));
     await tester.pump();
+    expect(saved, isTrue);
+  });
 
-    // Verify that our counter has incremented.
-    expect(find.text('0'), findsNothing);
-    expect(find.text('1'), findsOneWidget);
+  testWidgets('share stays disabled until a new task has a persisted id',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ActionPanel(
+            selectedDate: DateTime(2026, 7, 29),
+            onDateChanged: (_) {},
+            onSave: () {},
+            taskId: null,
+            onPrepareShare: () async => 'new-task-id',
+            urgency: null,
+            onChangeUrgency: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    final shareButton = tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byIcon(Icons.send),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(shareButton.onPressed, isNull);
+  });
+
+  testWidgets('share is enabled after the task has a persisted id',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ActionPanel(
+            selectedDate: DateTime(2026, 7, 29),
+            onDateChanged: (_) {},
+            onSave: () {},
+            taskId: 'persisted-task-id',
+            urgency: null,
+            onChangeUrgency: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    final shareButton = tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byIcon(Icons.send),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(shareButton.onPressed, isNotNull);
+  });
+
+  testWidgets('share is disabled for a received collaborative task',
+      (tester) async {
+    await tester.pumpWidget(
+      MaterialApp(
+        home: Scaffold(
+          body: ActionPanel(
+            selectedDate: DateTime(2026, 7, 29),
+            onDateChanged: (_) {},
+            onSave: () {},
+            taskId: 'shared-task-id',
+            shareAllowed: false,
+            urgency: null,
+            onChangeUrgency: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    final shareButton = tester.widget<IconButton>(
+      find.ancestor(
+        of: find.byIcon(Icons.send),
+        matching: find.byType(IconButton),
+      ),
+    );
+    expect(shareButton.onPressed, isNull);
   });
 }
