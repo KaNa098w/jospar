@@ -9,6 +9,21 @@ class SKk extends S {
   SKk([String locale = 'kk']) : super(locale);
 
   @override
+  String get settingsTheme => 'Тақырып';
+
+  @override
+  String get settingsNotifications => 'Хабарландырулар';
+
+  @override
+  String get settingsPrivacyPolicy => 'Құпиялылық саясаты';
+
+  @override
+  String get settingsVersion => 'Нұсқа';
+
+  @override
+  String get settingsBuild => 'Құрастырылым';
+
+  @override
   String get today => 'Бүгін';
 
   @override
@@ -246,6 +261,9 @@ class SKk extends S {
   String get sharedTasks => 'Ортақ тапсырмалар';
 
   @override
+  String get developerModeEnabled => 'Сіз әзірлеуші болдыңыз';
+
+  @override
   String get sharedProgress => 'Жалпы прогресс';
 
   @override
@@ -447,6 +465,40 @@ class SKk extends S {
   String syncRetries(Object count) {
     return 'Әрекет саны: $count';
   }
+
+  @override
+  String get fallbackSyncEnabled => 'Резервтік синхрондау қосылды';
+
+  @override
+  String get websocketOnlyMode => 'Тек WebSocket: мерзімді синхрондау өшірілді';
+
+  @override
+  String get enableFastSync => 'Әр 2 секунд сайын синхрондауды қосу';
+
+  @override
+  String get fastSyncEnabled => 'Жылдам синхрондау қосылды: әр 2 секунд сайын';
+
+  @override
+  String get defaultSyncEnabled =>
+      'Қалыпты синхрондау қосылды: әр 30 секунд сайын';
+
+  @override
+  String get realtimeConsole => 'WebSocket консолі';
+
+  @override
+  String get websocketConnected => 'WS қосылды';
+
+  @override
+  String get websocketDisconnected => 'WS ажыратылды';
+
+  @override
+  String get channelSubscribed => 'Арнаға жазылды';
+
+  @override
+  String get channelNotSubscribed => 'Жазылым жоқ';
+
+  @override
+  String get realtimeHistoryEmpty => 'Әзірге оқиғалар жоқ';
 
   @override
   String get subtaskDeleted => 'Қосалқы тапсырма жойылды';

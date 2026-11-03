@@ -36,6 +36,9 @@ class TaskItems {
   String? createdAt;
   String? updatedAt;
   bool? isCompleted;
+  String? completedByUserId;
+  Map<String, dynamic>? completedBy;
+  String? completedAt;
   String? hash;
   bool? isShared;
   String? collaborationRole;
@@ -63,6 +66,9 @@ class TaskItems {
     this.createdAt,
     this.updatedAt,
     this.isCompleted,
+    this.completedByUserId,
+    this.completedBy,
+    this.completedAt,
     this.taskList,
     this.children,
     this.hash,
@@ -98,6 +104,11 @@ class TaskItems {
       createdAt: json['created_at'] as String?,
       updatedAt: json['updated_at'] as String?,
       isCompleted: json['is_completed'] as bool?,
+      completedByUserId: json['completed_by_user_id'] as String?,
+      completedBy: json['completed_by'] is Map
+          ? Map<String, dynamic>.from(json['completed_by'] as Map)
+          : null,
+      completedAt: json['completed_at'] as String?,
       taskList: json['task_list'] != null
           ? TaskListItems.fromJson(json['task_list'] as Map<String, dynamic>)
           : null,
@@ -128,6 +139,9 @@ class TaskItems {
       'created_at': createdAt, // ← если не нужно отправлять — убери
       'updated_at': updatedAt, // ← если не нужно отправлять — убери
       'is_completed': isCompleted,
+      'completed_by_user_id': completedByUserId,
+      'completed_by': completedBy,
+      'completed_at': completedAt,
       if (taskList != null)
         'task_list': taskList!.toJson(), // объект, не массив
       if (children != null)

@@ -1,0 +1,37 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <color name="jospar_widget_surface">#FFFFFFFF</color>
+    <color name="jospar_widget_text">#FF1B1D22</color>
+    <color name="jospar_widget_secondary_text">#FF8A8F98</color>
+    <color name="jospar_widget_divider">#FFE7E9ED</color>
+    <color name="jospar_widget_badge">#FFEAF3FA</color>
+
+    <string name="jospar_widget_description">Задачи Jospar на сегодня</string>
+
+    <style name="JosparWidgetTaskRow">
+        <item name="android:layout_width">match_parent</item>
+        <item name="android:layout_height">0dp</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:gravity">center_vertical</item>
+        <item name="android:orientation">horizontal</item>
+    </style>
+
+    <style name="JosparWidgetCheckbox">
+        <item name="android:layout_width">21dp</item>
+        <item name="android:layout_height">21dp</item>
+        <item name="android:layout_marginEnd">9dp</item>
+        <item name="android:src">@drawable/jospar_widget_checkbox</item>
+    </style>
+
+    <style name="JosparWidgetTaskTitle">
+        <item name="android:layout_width">0dp</item>
+        <item name="android:layout_height">wrap_content</item>
+        <item name="android:layout_weight">1</item>
+        <item name="android:ellipsize">end</item>
+        <item name="android:fontFamily">sans-serif</item>
+        <item name="android:includeFontPadding">false</item>
+        <item name="android:maxLines">1</item>
+        <item name="android:textColor">@color/jospar_widget_text</item>
+        <item name="android:textSize">15sp</item>
+    </style>
+</resources>

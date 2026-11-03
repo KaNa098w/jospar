@@ -20,6 +20,89 @@ void main() {
     );
   });
 
+  test('extractSubtasks preserves completion actor metadata', () {
+    final task = TaskItems(
+      children: [
+        TaskItems(
+          id: 'child-1',
+          name: 'Подзадача',
+          isCompleted: true,
+          completedByUserId: 'user-1',
+          completedBy: const {'id': 'user-1', 'name': 'Иван Иванов'},
+          completedAt: '2026-09-02T10:15:30.000Z',
+        ),
+      ],
+    );
+
+    expect(extractSubtasks(task).single, containsPair('_id', 'child-1'));
+    expect(
+      extractSubtasks(task).single,
+      containsPair('completed_by_user_id', 'user-1'),
+    );
+    expect(
+      extractSubtasks(task).single['completed_by'],
+      {'id': 'user-1', 'name': 'Иван Иванов'},
+    );
+    expect(
+      extractSubtasks(task).single['completed_at'],
+      '2026-09-02T10:15:30.000Z',
+    );
+  });
+
+  testWidgets('completed subtask shows actor avatar without growing the row',
+      (tester) async {
+    final subtasks = <Map<String, dynamic>>[
+      {
+        '_id': 'child-1',
+        'title': 'Выполненная подзадача',
+        'completed': true,
+        'completed_by_user_id': 'user-1',
+        'completed_by': {'id': 'user-1', 'name': 'Иван Иванов'},
+      },
+      {
+        '_id': 'child-2',
+        'title': 'Без данных исполнителя',
+        'completed': true,
+      },
+    ];
+    final controller = TextEditingController();
+    final focusNode = FocusNode();
+    addTearDown(controller.dispose);
+    addTearDown(focusNode.dispose);
+
+    await tester.pumpWidget(
+      MaterialApp(
+        localizationsDelegates: S.localizationsDelegates,
+        supportedLocales: S.supportedLocales,
+        home: Scaffold(
+          body: SubtasksSection(
+            subtasks: subtasks,
+            showSubtaskInput: false,
+            subtaskController: controller,
+            subtaskFocusNode: focusNode,
+            onToggleComplete: (_) {},
+            onAdd: (_) {},
+            onToggleInput: (_) {},
+          ),
+        ),
+      ),
+    );
+
+    expect(
+      find.byKey(const ValueKey('completed-by-avatar-child-1')),
+      findsOneWidget,
+    );
+    expect(find.byTooltip('Иван Иванов'), findsOneWidget);
+    expect(
+      find.byKey(const ValueKey('completed-by-avatar-child-2')),
+      findsNothing,
+    );
+    expect(
+      tester.getSize(find.byKey(GlobalObjectKey(subtasks.first))).height,
+      tester.getSize(find.byKey(GlobalObjectKey(subtasks.last))).height,
+    );
+  });
+
   testWidgets('editing a one-line subtask keeps the same row height',
       (tester) async {
     final subtasks = <Map<String, dynamic>>[

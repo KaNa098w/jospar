@@ -2,6 +2,7 @@ import 'dart:async';
 import 'dart:convert';
 
 import 'package:connectivity_plus/connectivity_plus.dart';
+import 'package:drift/drift.dart';
 import 'package:flutter/widgets.dart';
 import 'package:http/http.dart' as http;
 import 'package:jospar/core/constants/constants.dart';
@@ -11,6 +12,7 @@ import 'package:jospar/core/services/offline/outbox.dart';
 import 'package:jospar/core/services/offline/sqlite_store.dart';
 
 typedef SyncDataChanged = void Function();
+typedef SyncErrorHandler = void Function(SyncException error);
 typedef AsyncNullableStringGetter = Future<String?> Function();
 typedef OnlineCheck = Future<bool> Function();
 typedef DeviceRegistrar = Future<void> Function(
@@ -40,6 +42,7 @@ class SyncEngine with WidgetsBindingObserver {
     required this.outbox,
     required this.store,
     this.onDataChanged,
+    this.onOperationError,
     http.Client? client,
     AsyncNullableStringGetter? tokenProvider,
     AsyncNullableStringGetter? deviceIdProvider,
@@ -56,6 +59,7 @@ class SyncEngine with WidgetsBindingObserver {
   final OutboxStore outbox;
   final SqliteStore store;
   final SyncDataChanged? onDataChanged;
+  final SyncErrorHandler? onOperationError;
   final http.Client _client;
   final AsyncNullableStringGetter _tokenProvider;
   final AsyncNullableStringGetter _deviceIdProvider;
@@ -63,9 +67,8 @@ class SyncEngine with WidgetsBindingObserver {
   final OnlineCheck? _onlineCheck;
   final DeviceRegistrar? _deviceRegistrar;
 
-  bool _running = false;
-  bool _rerunRequested = false;
-  Completer<void>? _activeSynchronization;
+  Future<void>? _activeSync;
+  bool _syncRequested = false;
   Object? _lastError;
   bool _stopped = true;
   Timer? _timer;
@@ -77,7 +80,7 @@ class SyncEngine with WidgetsBindingObserver {
   Object? get lastError => _lastError;
   Stream<SyncLogEntry> get logStream => _logController.stream;
   List<SyncLogEntry> get logs => List.unmodifiable(_logs);
-  bool get isRunning => _running;
+  bool get isRunning => _activeSync != null;
   int lastPullChangeCount = 0;
   bool lastPullCursorUpdated = false;
 
@@ -98,7 +101,7 @@ class SyncEngine with WidgetsBindingObserver {
     _stopped = false;
     WidgetsBinding.instance.addObserver(this);
     _timer = Timer.periodic(
-      const Duration(seconds: 30),
+      const Duration(seconds: 60),
       (_) => synchronize(),
     );
     _connectivitySubscription =
@@ -123,22 +126,25 @@ class SyncEngine with WidgetsBindingObserver {
     if (state == AppLifecycleState.resumed) synchronize();
   }
 
-  Future<void> synchronize({bool ignoreStopped = false}) async {
-    if (_stopped && !ignoreStopped) return;
-    if (_running) {
-      _rerunRequested = true;
-      await _activeSynchronization?.future;
-      return;
-    }
-    _running = true;
+  Future<void> synchronize({bool ignoreStopped = false}) {
+    if (_stopped && !ignoreStopped) return Future<void>.value();
+    _syncRequested = true;
+    final running = _activeSync;
+    if (running != null) return running;
+
+    final future = _runSyncLoop(ignoreStopped: ignoreStopped);
+    _activeSync = future;
+    return future;
+  }
+
+  Future<void> _runSyncLoop({required bool ignoreStopped}) async {
     _lastError = null;
     _log(SyncLogKind.info, 'Синхронизация запущена');
-    final synchronization = Completer<void>();
-    _activeSynchronization = synchronization;
 
     try {
-      do {
-        _rerunRequested = false;
+      while (_syncRequested) {
+        _syncRequested = false;
+        if (_stopped && !ignoreStopped) return;
         if (!await _canSync()) {
           _lastError = const SyncUnavailableException(
             'Нет подключения к интернету',
@@ -171,7 +177,6 @@ class SyncEngine with WidgetsBindingObserver {
           );
         }
         await store.claimAnonymousData(userId);
-        await _pushPending(token, userId);
         var cursor = await store.cursorFor(userId);
         if (cursor == null) {
           await _applySnapshot(
@@ -187,7 +192,19 @@ class SyncEngine with WidgetsBindingObserver {
           userId: userId,
           initialCursor: cursor,
         );
-      } while (_rerunRequested);
+        await _pushPending(
+          token: token,
+          deviceId: deviceId,
+          userId: userId,
+        );
+        cursor = await store.cursorFor(userId);
+        await _pullUntilComplete(
+          token: token,
+          deviceId: deviceId,
+          userId: userId,
+          initialCursor: cursor,
+        );
+      }
       if (_lastError == null) {
         _log(SyncLogKind.success, 'Синхронизация завершена успешно');
       }
@@ -209,11 +226,8 @@ class SyncEngine with WidgetsBindingObserver {
       _log(SyncLogKind.error, 'Неизвестная ошибка', error.toString());
       // Background synchronization must never crash the UI isolate.
     } finally {
-      _running = false;
-      if (!synchronization.isCompleted) synchronization.complete();
-      if (identical(_activeSynchronization, synchronization)) {
-        _activeSynchronization = null;
-      }
+      _activeSync = null;
+      if (_syncRequested) unawaited(synchronize(ignoreStopped: ignoreStopped));
     }
   }
 
@@ -223,68 +237,47 @@ class SyncEngine with WidgetsBindingObserver {
     return !results.contains(ConnectivityResult.none);
   }
 
-  Future<void> _pushPending(String token, String userId) async {
-    final operations = await outbox.pending(userId);
-    if (operations.isEmpty) return;
-
-    final ordered = _orderForImport(operations);
-    for (final batch in _importBatches(ordered)) {
+  Future<void> _pushPending({
+    required String token,
+    required String deviceId,
+    required String userId,
+  }) async {
+    while (true) {
+      final operations = await outbox.pending(userId);
+      if (operations.isEmpty) return;
+      var operation = operations.first;
       try {
         _log(
           SyncLogKind.sent,
-          'Отправка на бэкенд: ${batch.length}',
-          batch
-              .map((operation) =>
-                  '${operation.type.name}: ${_entityId(operation) ?? '-'}')
-              .join('\n'),
+          'Отправка на бэкенд: 1',
+          '${operation.type.name}: ${_entityId(operation) ?? '-'}',
         );
-        final request = http.MultipartRequest(
-          'POST',
-          Uri.parse('${Constants.baseUrl}/v1/sync/import'),
-        )
-          ..headers.addAll({
-            'Authorization': 'Bearer $token',
-            'Accept': 'application/json',
-          })
-          ..files.add(
-            http.MultipartFile.fromBytes(
-              'file',
-              utf8.encode(jsonEncode(_importDocument(batch))),
-              filename: 'sync.json',
-              contentType: http.MediaType('application', 'json'),
-            ),
-          );
-        final streamed = await _client.send(request);
-        final response = await http.Response.fromStream(streamed);
-        if (!_successful(response.statusCode)) {
-          throw SyncException.fromResponse(response);
-        }
-
-        final responseBody = _decodeObject(response.body);
-        if (responseBody['schema_version'] != 1 ||
-            responseBody['results'] is! List) {
-          throw const SyncException(
-            statusCode: 500,
-            body: 'Invalid sync import response',
-            code: 'invalid_response',
-            message: 'Сервер вернул некорректный результат импорта',
-          );
-        }
-        final byId = {
-          for (final operation in batch) operation.operationId: operation,
-        };
-        final returnedIds = <String>{};
-        var processedCount = 0;
-        var rejectedCount = 0;
-        for (final raw in responseBody['results'] as List) {
-          if (raw is! Map) continue;
-          final result = Map<String, dynamic>.from(raw);
-          final operationId = result['operation_id']?.toString();
-          final operation = byId[operationId];
-          if (operation == null || operationId == null) continue;
-          returnedIds.add(operationId);
-          if (result['status'] == 'processed') {
-            processedCount++;
+        while (true) {
+          final document = _operationDocument(operation);
+          debugPrint('SYNC REQUEST: ${jsonEncode(document)}');
+          late final http.Response response;
+          outbox.markSending(operation);
+          try {
+            response = await _client.post(
+              Uri.parse('${Constants.baseUrl}/v1/sync/operations'),
+              headers: _headers(token),
+              body: jsonEncode(document),
+            );
+          } finally {
+            outbox.unmarkSending(operation);
+          }
+          debugPrint('SYNC HTTP: ${response.statusCode}');
+          debugPrint('SYNC BODY: ${response.body}');
+          if (_successful(response.statusCode)) {
+            final result = _decodeObject(response.body);
+            if (result['operation_id']?.toString() != operation.operationId) {
+              throw const SyncException(
+                statusCode: 500,
+                body: 'Invalid sync operation response',
+                code: 'invalid_response',
+                message: 'Сервер вернул некорректный результат операции',
+              );
+            }
             await store.db.transaction(() async {
               await store.markOperationSynced(
                 operation,
@@ -294,137 +287,173 @@ class SyncEngine with WidgetsBindingObserver {
               );
               await outbox.remove(operation.localRowId);
             });
+            final entityId = _entityId(operation);
+            final entityVersion = _asInt(result['entity_version']);
+            if (entityId != null && entityVersion != null) {
+              await _rebaseEntityPending(userId, entityId, entityVersion);
+            }
+            _log(SyncLogKind.success, 'Ответ бэкенда: обработано 1, ошибок 0');
+            break;
+          }
+          final error = SyncException.fromResponse(response);
+          if (error.code == 'version_conflict') {
+            if (operation.retries >= 2) throw error;
+            final entityId = _entityId(operation);
+            await _pullUntilComplete(
+              token: token,
+              deviceId: deviceId,
+              userId: userId,
+              initialCursor: await store.cursorFor(userId),
+            );
+            if (entityId == null ||
+                await store.taskById(userId, entityId) == null) {
+              throw const SyncException(
+                statusCode: 404,
+                body: 'Entity disappeared while rebasing operation',
+                code: 'task_not_found',
+                message: 'Задача больше не существует',
+              );
+            }
+            final payload = Map<String, dynamic>.from(operation.payload);
+            final version = _asInt(error.details?['current_version']) ??
+                await _entityVersion(userId, operation);
+            payload.remove('version');
+            if (version != null) payload['expected_version'] = version;
+            operation = await outbox.renewForRetry(operation, payload: payload);
+            await store.reapplyOptimisticOperation(userId, operation);
             continue;
           }
-          rejectedCount++;
-          final error = result['error'];
-          final message = error is Map
-              ? error['message']?.toString() ?? jsonEncode(error)
-              : 'Операция импорта отклонена сервером';
-          await outbox.recordFailure(operation, message, terminal: false);
-        }
-        _log(
-          rejectedCount == 0 ? SyncLogKind.success : SyncLogKind.error,
-          'Ответ бэкенда: обработано $processedCount, ошибок $rejectedCount',
-        );
-        for (final operation in batch) {
-          if (!returnedIds.contains(operation.operationId)) {
-            await outbox.recordFailure(
-              operation,
-              'Сервер не вернул результат операции',
-              terminal: false,
-            );
-          }
+          throw error;
         }
       } on SyncException catch (error) {
         _lastError = error;
-        for (final operation in batch) {
-          await outbox.recordFailure(operation, error, terminal: false);
+        final terminal = error.isTerminalOperationFailure;
+        await outbox.recordFailure(operation, error, terminal: terminal);
+        if (terminal) onOperationError?.call(error);
+        if (terminal) {
+          await store.discardOptimisticOperation(
+            operation,
+            accountId: userId,
+          );
+          if (error.statusCode == 403 || error.statusCode == 404) {
+            await store.clearUserSyncState(userId);
+            await _applySnapshot(
+              token: token,
+              deviceId: deviceId,
+              userId: userId,
+            );
+          }
         }
         break;
       } catch (error) {
         _lastError = error;
-        for (final operation in batch) {
-          await outbox.recordFailure(operation, error, terminal: false);
-        }
+        await outbox.recordFailure(operation, error, terminal: false);
         break;
       }
     }
   }
 
-  static const int _maxImportOperations = 500;
-  static const int _maxImportBytes = 10 * 1024 * 1024;
-
-  List<OutboxOp> _orderForImport(List<OutboxOp> operations) {
-    final originalIndex = <int, int>{
-      for (var i = 0; i < operations.length; i++) operations[i].localRowId: i,
-    };
-    final createTasksById = <String, OutboxOp>{};
-    for (final operation in operations) {
-      if (operation.type != OutboxOpType.createTask) continue;
-      final id = _entityId(operation);
-      if (id != null) createTasksById[id] = operation;
-    }
-    final depthCache = <String, int>{};
-    int taskDepth(OutboxOp operation, Set<String> visiting) {
-      final id = _entityId(operation);
-      if (id == null) return 0;
-      final cached = depthCache[id];
-      if (cached != null) return cached;
-      if (!visiting.add(id)) return 0;
-      final parentId = operation.payload['parent_task_id']?.toString();
-      final parent = parentId == null ? null : createTasksById[parentId];
-      final depth = parent == null ? 0 : taskDepth(parent, visiting) + 1;
-      visiting.remove(id);
-      depthCache[id] = depth;
-      return depth;
-    }
-
-    final ordered = List<OutboxOp>.from(operations);
-    ordered.sort((left, right) {
-      final leftRank = _importRank(left, taskDepth(left, <String>{}));
-      final rightRank = _importRank(right, taskDepth(right, <String>{}));
-      final rankComparison = leftRank.compareTo(rightRank);
-      if (rankComparison != 0) return rankComparison;
-      return originalIndex[left.localRowId]!
-          .compareTo(originalIndex[right.localRowId]!);
-    });
-    return ordered;
-  }
-
-  int _importRank(OutboxOp operation, int taskDepth) {
-    if (operation.type == OutboxOpType.createTaskList) return 0;
-    if (operation.type == OutboxOpType.createTask) return 1 + taskDepth;
-    if (operation.type == OutboxOpType.createShare) return 1000000;
-    return 500000;
-  }
-
-  Iterable<List<OutboxOp>> _importBatches(List<OutboxOp> operations) sync* {
-    var batch = <OutboxOp>[];
-    for (final operation in operations) {
-      final candidate = [...batch, operation];
-      final size = utf8.encode(jsonEncode(_importDocument(candidate))).length;
-      if (candidate.length > _maxImportOperations || size > _maxImportBytes) {
-        if (batch.isEmpty) {
-          throw const SyncException(
-            statusCode: 413,
-            body: 'Single operation exceeds 10 MB',
-            code: 'import_too_large',
-            message: 'Одна операция синхронизации превышает 10 МБ',
-          );
-        }
-        yield batch;
-        batch = [operation];
-        final singleSize =
-            utf8.encode(jsonEncode(_importDocument(batch))).length;
-        if (singleSize > _maxImportBytes) {
-          throw const SyncException(
-            statusCode: 413,
-            body: 'Single operation exceeds 10 MB',
-            code: 'import_too_large',
-            message: 'Одна операция синхронизации превышает 10 МБ',
-          );
-        }
-      } else {
-        batch = candidate;
+  Future<void> _rebaseEntityPending(
+    String userId,
+    String entityId,
+    int version,
+  ) async {
+    for (final operation in await outbox.queued(userId)) {
+      if (_entityId(operation) != entityId ||
+          !_usesExpectedVersion(operation.type)) {
+        continue;
       }
+      await outbox.rebase(operation, version: version);
     }
-    if (batch.isNotEmpty) yield batch;
   }
 
-  Map<String, dynamic> _importDocument(List<OutboxOp> operations) => {
-        'schema_version': 1,
-        'operations': operations
-            .map(
-              (operation) => {
-                'operation_id': operation.operationId,
-                'type': operation.type.name,
-                'entity_id': _entityId(operation),
-                'payload': operation.payload,
-              },
-            )
-            .toList(growable: false),
+  Map<String, dynamic> _operationDocument(OutboxOp operation) => {
+        'operation_id': operation.operationId,
+        'device_id': operation.deviceId,
+        'type': operation.type.name,
+        'entity_id': _entityId(operation),
+        'client_timestamp': operation.clientTimestamp.toUtc().toIso8601String(),
+        'payload': _normalizedPayload(operation),
       };
+
+  Map<String, dynamic> _normalizedPayload(OutboxOp operation) {
+    final payload = Map<String, dynamic>.from(operation.payload);
+    final legacyVersion = payload.remove('version');
+    if (_usesExpectedVersion(operation.type) &&
+        !payload.containsKey('expected_version') &&
+        legacyVersion != null) {
+      payload['expected_version'] = legacyVersion;
+    }
+    final allowedFields = switch (operation.type) {
+      OutboxOpType.createTask => const {
+          'id',
+          'name',
+          'note',
+          'date',
+          'notification_time',
+          'urgency',
+          'position',
+          'task_list_id',
+          'parent_task_id',
+          'is_completed',
+        },
+      OutboxOpType.updateTask => const {
+          'name',
+          'note',
+          'date',
+          'notification_time',
+          'urgency',
+          'position',
+          'task_list_id',
+          'parent_task_id',
+          'is_completed',
+          'expected_version',
+          'updated_at',
+        },
+      OutboxOpType.toggleTaskCompleted => const {
+          'is_completed',
+          'expected_version',
+        },
+      OutboxOpType.deleteTask || OutboxOpType.restoreTask => const {
+          'expected_version',
+        },
+      OutboxOpType.clearTrash ||
+      OutboxOpType.deleteTaskList =>
+        const <String>{},
+      OutboxOpType.createTaskList => const {
+          'id',
+          'name',
+          'color_hex',
+          'is_hidden',
+        },
+      OutboxOpType.updateTaskList => const {
+          'name',
+          'color_hex',
+          'is_hidden',
+        },
+    };
+    payload.removeWhere((key, _) => !allowedFields.contains(key));
+    return payload;
+  }
+
+  bool _usesExpectedVersion(OutboxOpType type) =>
+      type == OutboxOpType.updateTask ||
+      type == OutboxOpType.toggleTaskCompleted ||
+      type == OutboxOpType.deleteTask ||
+      type == OutboxOpType.restoreTask;
+
+  Future<int?> _entityVersion(String userId, OutboxOp operation) async {
+    final id = _entityId(operation);
+    if (id == null) return null;
+    if (operation.type.name.endsWith('TaskList')) {
+      final row = await (store.db.select(store.db.taskListsTable)
+            ..where((table) =>
+                table.serverId.equals(id) & table.accountId.equals(userId)))
+          .getSingleOrNull();
+      return row?.version;
+    }
+    return (await store.taskById(userId, id))?.version;
+  }
 
   String? _entityId(OutboxOp operation) {
     final direct = operation.entityId;
@@ -487,14 +516,27 @@ class SyncEngine with WidgetsBindingObserver {
         userId: userId,
         changes: changes,
         nextCursor: nextCursor,
-        pendingEntityIds: await outbox.pendingEntityIds(userId),
+        pendingEntityIds: const {},
       );
+      await _rebaseAndReapplyPending(userId);
       cursor = nextCursor;
       hasMore = body['has_more'] == true;
       onDataChanged?.call();
     }
     lastPullChangeCount = pulledChanges;
     lastPullCursorUpdated = cursorUpdated;
+  }
+
+  Future<void> _rebaseAndReapplyPending(String userId) async {
+    for (var operation in await outbox.queued(userId)) {
+      if (_usesExpectedVersion(operation.type)) {
+        final version = await _entityVersion(userId, operation);
+        if (version != null) {
+          operation = await outbox.rebase(operation, version: version);
+        }
+      }
+      await store.reapplyOptimisticOperation(userId, operation);
+    }
   }
 
   Future<void> _applySnapshot({
@@ -523,6 +565,7 @@ class SyncEngine with WidgetsBindingObserver {
       taskLists: taskLists,
       cursor: body['cursor']?.toString(),
     );
+    await _rebaseAndReapplyPending(userId);
     onDataChanged?.call();
   }
 
@@ -563,17 +606,22 @@ class SyncException implements Exception {
     required this.body,
     this.code,
     this.message,
+    this.details,
   });
 
   factory SyncException.fromResponse(http.Response response) {
     String? code;
     String? message;
+    Map<String, dynamic>? details;
     try {
       final decoded = jsonDecode(response.body);
       if (decoded is Map && decoded['error'] is Map) {
         final error = decoded['error'] as Map;
         code = error['code']?.toString();
         message = error['message']?.toString();
+        if (error['details'] is Map) {
+          details = Map<String, dynamic>.from(error['details'] as Map);
+        }
       }
     } catch (_) {
       // The raw response remains available for diagnostics.
@@ -583,6 +631,7 @@ class SyncException implements Exception {
       body: response.body,
       code: code,
       message: message,
+      details: details,
     );
   }
 
@@ -590,6 +639,7 @@ class SyncException implements Exception {
   final String body;
   final String? code;
   final String? message;
+  final Map<String, dynamic>? details;
 
   bool get isTerminalOperationFailure =>
       statusCode == 401 ||

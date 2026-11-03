@@ -2,8 +2,10 @@ import 'package:flutter/material.dart';
 import 'package:jospar/core/models/task_list_items_response.dart';
 import 'package:jospar/core/services/auth_storage.dart';
 import 'package:jospar/core/services/offline/offline_runtime.dart';
+import 'package:shared_preferences/shared_preferences.dart';
 
 class TaskListService {
+  static const _defaultListSeededKey = 'default_task_list_seeded_v1';
   static final Map<String, Future<void>> _seedOperations = {};
 
   Future<String> _deviceId() => AuthStorage().ensureDeviceId();
@@ -29,9 +31,20 @@ class TaskListService {
   }
 
   Future<void> _seedAccountIfNeeded(String accountId) async {
-    if ((await OfflineRuntime.store.allTaskListRows(accountId)).isNotEmpty) {
+    final preferences = await SharedPreferences.getInstance();
+    if (preferences.getBool(_defaultListSeededKey) == true) {
       return;
     }
+
+    // This is an installation-wide seed, rather than an "empty account"
+    // seed. The anonymous list is claimed by the account during the first
+    // authenticated sync. Keeping this flag across logout prevents a deleted
+    // default list from being recreated on the next launch or sign-in.
+    if ((await OfflineRuntime.store.allTaskListRows(accountId)).isNotEmpty) {
+      await preferences.setBool(_defaultListSeededKey, true);
+      return;
+    }
+
     await OfflineRuntime.store.createTaskList(
       deviceId: await _deviceId(),
       accountId: accountId,
@@ -39,6 +52,7 @@ class TaskListService {
       colorHex: '#5B67F1',
       isHidden: false,
     );
+    await preferences.setBool(_defaultListSeededKey, true);
     OfflineRuntime.requestSync();
   }
 

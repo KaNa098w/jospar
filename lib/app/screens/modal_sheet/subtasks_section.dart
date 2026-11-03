@@ -552,6 +552,10 @@ class _SubtasksSectionState extends State<SubtasksSection> {
                                 ),
                               ),
                             ),
+                            if (completed && _completionPerson(s) != null) ...[
+                              const SizedBox(width: 6),
+                              _CompletedByAvatar(subtask: s),
+                            ],
                             // RenderEditable reserves 1 px of caret gap plus the
                             // 2 px cursor width from its text layout. Give those
                             // exact 3 px back from the existing trailing gap so
@@ -674,6 +678,11 @@ class _SubtasksSectionState extends State<SubtasksSection> {
                                   ),
                                 ),
                               ),
+                              if (completed &&
+                                  _completionPerson(s) != null) ...[
+                                const SizedBox(width: 6),
+                                _CompletedByAvatar(subtask: s),
+                              ],
                               const SizedBox(
                                 width:
                                     _subtaskTrailingGap - _editableCaretMargin,
@@ -899,4 +908,128 @@ class _SubtaskTrailingSlot extends StatelessWidget {
       child: child,
     );
   }
+}
+
+class _CompletedByAvatar extends StatelessWidget {
+  const _CompletedByAvatar({required this.subtask});
+
+  final Map<String, dynamic> subtask;
+
+  @override
+  Widget build(BuildContext context) {
+    final person = _completionPerson(subtask)!;
+    final id = (person['id'] ?? person['user_id'] ?? '').toString();
+    final name = _personName(person);
+    final avatarUrl = _personAvatarUrl(person);
+    final fallback = Container(
+      color: _completionAvatarColor(id.isEmpty ? name : id),
+      alignment: Alignment.center,
+      child: Text(
+        name.isEmpty ? '?' : name.characters.first.toUpperCase(),
+        style: const TextStyle(
+          color: Colors.white,
+          fontSize: 9,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+
+    return Tooltip(
+      message: name.isEmpty ? 'Пользователь' : name,
+      child: Container(
+        key: ValueKey(
+          'completed-by-avatar-${subtask['_id'] ?? subtask['title']}',
+        ),
+        width: 20,
+        height: 20,
+        padding: const EdgeInsets.all(1),
+        decoration: BoxDecoration(
+          color: Theme.of(context).colorScheme.surface,
+          shape: BoxShape.circle,
+          border: Border.all(
+            color: Theme.of(context).colorScheme.outlineVariant,
+            width: 1,
+          ),
+        ),
+        child: ClipOval(
+          child: avatarUrl == null
+              ? fallback
+              : Image.network(
+                  avatarUrl,
+                  fit: BoxFit.cover,
+                  errorBuilder: (_, __, ___) => fallback,
+                ),
+        ),
+      ),
+    );
+  }
+}
+
+Map<String, dynamic>? _completionPerson(Map<String, dynamic> subtask) {
+  final direct = _stringMap(subtask['completed_by']);
+  final userId =
+      (subtask['completed_by_user_id'] ?? direct?['id'] ?? direct?['user_id'])
+          ?.toString();
+
+  Map<String, dynamic>? collaborator;
+  final collaborators = subtask['collaborators'];
+  if (userId != null && collaborators is List) {
+    for (final raw in collaborators.whereType<Map>()) {
+      final candidate = Map<String, dynamic>.from(raw);
+      final candidateUser = _stringMap(candidate['user']);
+      final candidateId =
+          (candidate['user_id'] ?? candidate['id'] ?? candidateUser?['id'])
+              ?.toString();
+      if (candidateId == userId) {
+        collaborator = {
+          ...candidate,
+          if (candidateUser != null) ...candidateUser,
+        };
+        break;
+      }
+    }
+  }
+
+  if (direct == null && collaborator == null && userId == null) return null;
+  return <String, dynamic>{
+    if (collaborator != null) ...collaborator,
+    if (direct != null) ...direct,
+    if (userId != null) 'id': userId,
+  };
+}
+
+Map<String, dynamic>? _stringMap(dynamic value) =>
+    value is Map ? Map<String, dynamic>.from(value) : null;
+
+String _personName(Map<String, dynamic> person) {
+  final fullName =
+      '${person['first_name'] ?? ''} ${person['last_name'] ?? ''}'.trim();
+  return (person['name'] ??
+          person['display_name'] ??
+          (fullName.isEmpty ? null : fullName) ??
+          person['email'] ??
+          '')
+      .toString()
+      .trim();
+}
+
+String? _personAvatarUrl(Map<String, dynamic> person) {
+  final value = person['avatar_url'] ??
+      person['photo_url'] ??
+      person['picture'] ??
+      person['avatar'];
+  final url = value?.toString().trim();
+  return url == null || url.isEmpty ? null : url;
+}
+
+Color _completionAvatarColor(String seed) {
+  const palette = <Color>[
+    Color(0xFF5B6EE1),
+    Color(0xFFDB5A6B),
+    Color(0xFF2F9E73),
+    Color(0xFFE08433),
+    Color(0xFF8B5CC7),
+  ];
+  final hash = seed.codeUnits.fold<int>(0, (value, unit) => value * 31 + unit);
+  return palette[hash.abs() % palette.length];
 }

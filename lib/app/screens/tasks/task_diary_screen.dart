@@ -1,5 +1,6 @@
 import 'package:flutter/material.dart';
 import 'package:intl/intl.dart';
+import 'package:jospar/app/screens/modal_sheet/add_task_modal.dart';
 import 'package:jospar/app/screens/tasks/section/utils/task_color.dart';
 import 'package:jospar/app/screens/tasks/section/widgets/task_item_widget.dart';
 import 'package:jospar/app/screens/tasks/utils/date_utils_ext.dart';
@@ -111,6 +112,149 @@ class _TaskDiaryScreenState extends State<TaskDiaryScreen> {
     }
   }
 
+  Future<void> _openTask(TaskItems task) async {
+    final taskId = task.id;
+    if (taskId == null || taskId.isEmpty) return;
+
+    await showAddTaskModal(
+      context: context,
+      selectedDay: parseLocal(task.date) ??
+          parseLocal(task.updatedAt) ??
+          parseLocal(task.createdAt) ??
+          DateTime.now(),
+      taskId: taskId,
+      existingTask: task,
+      onSaveTask: (title, subtasks, date, taskListId, urgency) async {
+        await _saveTaskAndSubtasks(
+          task: task,
+          title: title,
+          subtasks: List<Map<String, dynamic>>.from(subtasks),
+          date: date,
+          taskListId: taskListId,
+          urgency: urgency,
+        );
+        return taskId;
+      },
+    );
+
+    if (!mounted) return;
+    await _reloadDiary();
+  }
+
+  Future<void> _saveTaskAndSubtasks({
+    required TaskItems task,
+    required String title,
+    required List<Map<String, dynamic>> subtasks,
+    required DateTime? date,
+    required String taskListId,
+    required String urgency,
+  }) async {
+    final parentId = task.id;
+    if (parentId == null || parentId.isEmpty) return;
+    final originals = {
+      for (final child in task.children ?? const <TaskItems>[])
+        if (child.id != null)
+          child.id!: {
+            'title': child.name ?? '',
+            'completed': child.isCompleted == true,
+            'position': child.position,
+          },
+    };
+    final retainedIds = subtasks
+        .map((item) => item['_id']?.toString())
+        .whereType<String>()
+        .where((id) => id.isNotEmpty)
+        .toSet();
+
+    await _taskService.updateTaskPut(
+      context,
+      id: parentId,
+      name: title,
+      date: date == null ? null : _ymd(date),
+      clearDate: date == null,
+      urgency: urgency,
+      taskListId: taskListId,
+    );
+
+    for (final entry in subtasks.asMap().entries) {
+      final subtask = entry.value;
+      final id = subtask['_id']?.toString();
+      final name = (subtask['title'] ?? '').toString().trim();
+      if (name.isEmpty) continue;
+      final completed = subtask['completed'] == true;
+      if (id == null || id.isEmpty) {
+        if (!mounted) return;
+        await _taskService.createSubtask(
+          context,
+          name: name,
+          parentTaskId: parentId,
+          taskListId: taskListId,
+          date: date == null ? null : _ymd(date),
+          position: entry.key,
+        );
+        continue;
+      }
+
+      final original = originals[id];
+      if (original == null ||
+          original['title'] != name ||
+          original['completed'] != completed ||
+          original['position'] != entry.key) {
+        if (!mounted) return;
+        await _taskService.updateTaskPut(
+          context,
+          id: id,
+          name: name,
+          isCompleted: completed,
+          position: entry.key,
+          date: task.date,
+        );
+      }
+    }
+
+    for (final id in originals.keys.where((id) => !retainedIds.contains(id))) {
+      if (!mounted) return;
+      await _taskService.deleteTask(context, id);
+    }
+
+    final allSubtasksCompleted = subtasks.isNotEmpty &&
+        subtasks.every((item) => item['completed'] == true);
+    if (subtasks.isNotEmpty && task.isCompleted != allSubtasksCompleted) {
+      if (!mounted) return;
+      await _taskService.updateTaskPut(
+        context,
+        id: parentId,
+        isCompleted: allSubtasksCompleted,
+        date: date == null ? null : _ymd(date),
+        clearDate: date == null,
+      );
+      task.isCompleted = allSubtasksCompleted;
+    }
+  }
+
+  Future<void> _reloadDiary() async {
+    final provider = context.read<GlobalProvider>();
+    await provider.refreshTasks(context, silent: true);
+    if (!mounted) return;
+    final refreshed = provider.allApiTasks
+        .map((task) => TaskItems.fromJson(task.toJson()))
+        .toList(growable: false);
+    final days = _groupTasks(refreshed).keys.toList()
+      ..sort((a, b) => b.compareTo(a));
+    setState(() {
+      _tasks
+        ..clear()
+        ..addAll(refreshed);
+      _days
+        ..clear()
+        ..addAll(days);
+    });
+  }
+
+  String _ymd(DateTime date) => '${date.year.toString().padLeft(4, '0')}-'
+      '${date.month.toString().padLeft(2, '0')}-'
+      '${date.day.toString().padLeft(2, '0')}';
+
   String _dateTitle(BuildContext context, DateTime day) {
     if (day == DateUtils.dateOnly(DateTime.now())) {
       return S.of(context).today.toUpperCase();
@@ -213,22 +357,27 @@ class _TaskDiaryScreenState extends State<TaskDiaryScreen> {
                                                 padding: const EdgeInsets.only(
                                                   bottom: 8,
                                                 ),
-                                                child: TaskItem(
-                                                  task: task,
-                                                  urgency: task.urgency,
-                                                  colorHex: resolveTaskColor(
-                                                    context,
-                                                    task,
+                                                child: GestureDetector(
+                                                  behavior:
+                                                      HitTestBehavior.opaque,
+                                                  onTap: () => _openTask(task),
+                                                  child: TaskItem(
+                                                    task: task,
+                                                    urgency: task.urgency,
+                                                    colorHex: resolveTaskColor(
+                                                      context,
+                                                      task,
+                                                    ),
+                                                    completedColor:
+                                                        resolveTaskColor(
+                                                      context,
+                                                      task,
+                                                    ),
+                                                    keepCompletedTaskActiveStyle:
+                                                        true,
+                                                    onToggle: () =>
+                                                        _restoreTask(task),
                                                   ),
-                                                  completedColor:
-                                                      resolveTaskColor(
-                                                    context,
-                                                    task,
-                                                  ),
-                                                  keepCompletedTaskActiveStyle:
-                                                      true,
-                                                  onToggle: () =>
-                                                      _restoreTask(task),
                                                 ),
                                               ),
                                       ),

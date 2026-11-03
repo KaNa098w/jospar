@@ -9,11 +9,12 @@ import 'package:jospar/core/l10n/s.dart';
 import 'package:provider/provider.dart';
 import 'package:jospar/core/constants/provider.dart';
 import 'package:jospar/app/screens/trash/trash_screen.dart';
-import 'package:jospar/app/screens/shared/shared_tasks_screen.dart';
 import 'package:jospar/core/models/task_list_items_response.dart';
 import 'package:jospar/core/constants/theme_provider.dart';
 import 'package:jospar/app/screens/sync/synchronization_screen.dart';
 import 'package:jospar/app/screens/tasks/task_diary_screen.dart';
+import 'package:jospar/app/screens/shared/shared_tasks_screen.dart';
+import 'package:jospar/core/services/developer_mode_service.dart';
 
 class CustomDrawer extends StatefulWidget {
   final VoidCallback? onAnyTap;
@@ -35,6 +36,12 @@ class CustomDrawer extends StatefulWidget {
 
 class _CustomDrawerState extends State<CustomDrawer> {
   static const double _hpad = 16.0;
+
+  @override
+  void initState() {
+    super.initState();
+    DeveloperModeService.load();
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -134,17 +141,25 @@ class _CustomDrawerState extends State<CustomDrawer> {
                       widget.onAnyTap?.call();
                     },
                   ),
-                  ListTile(
-                    contentPadding:
-                        const EdgeInsets.symmetric(horizontal: _hpad),
-                    leading: const Icon(Icons.groups_outlined),
-                    title: Text(S.of(context).sharedTasks),
-                    onTap: () {
-                      widget.onAnyTap?.call();
-                      Navigator.of(context).push(
-                        MaterialPageRoute(
-                          builder: (_) => const SharedTasksScreen(),
-                        ),
+                  ValueListenableBuilder<bool>(
+                    valueListenable: DeveloperModeService.enabled,
+                    builder: (context, developerModeEnabled, _) {
+                      if (!developerModeEnabled) {
+                        return const SizedBox.shrink();
+                      }
+                      return ListTile(
+                        contentPadding:
+                            const EdgeInsets.symmetric(horizontal: _hpad),
+                        leading: const Icon(Icons.groups_outlined),
+                        title: Text(S.of(context).sharedTasks),
+                        onTap: () {
+                          widget.onAnyTap?.call();
+                          Navigator.of(context).push(
+                            MaterialPageRoute(
+                              builder: (_) => const SharedTasksScreen(),
+                            ),
+                          );
+                        },
                       );
                     },
                   ),

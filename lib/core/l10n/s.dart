@@ -99,6 +99,36 @@ abstract class S {
     Locale('ru')
   ];
 
+  /// No description provided for @settingsTheme.
+  ///
+  /// In en, this message translates to:
+  /// **'Theme'**
+  String get settingsTheme;
+
+  /// No description provided for @settingsNotifications.
+  ///
+  /// In en, this message translates to:
+  /// **'Notifications'**
+  String get settingsNotifications;
+
+  /// No description provided for @settingsPrivacyPolicy.
+  ///
+  /// In en, this message translates to:
+  /// **'Privacy policy'**
+  String get settingsPrivacyPolicy;
+
+  /// No description provided for @settingsVersion.
+  ///
+  /// In en, this message translates to:
+  /// **'Version'**
+  String get settingsVersion;
+
+  /// No description provided for @settingsBuild.
+  ///
+  /// In en, this message translates to:
+  /// **'Build'**
+  String get settingsBuild;
+
   /// No description provided for @today.
   ///
   /// In en, this message translates to:
@@ -561,6 +591,12 @@ abstract class S {
   /// **'Shared tasks'**
   String get sharedTasks;
 
+  /// No description provided for @developerModeEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'You are now a developer'**
+  String get developerModeEnabled;
+
   /// No description provided for @sharedProgress.
   ///
   /// In en, this message translates to:
@@ -914,6 +950,72 @@ abstract class S {
   /// In en, this message translates to:
   /// **'Attempts: {count}'**
   String syncRetries(Object count);
+
+  /// No description provided for @fallbackSyncEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Fallback synchronization is enabled'**
+  String get fallbackSyncEnabled;
+
+  /// No description provided for @websocketOnlyMode.
+  ///
+  /// In en, this message translates to:
+  /// **'WebSocket only: periodic synchronization is disabled'**
+  String get websocketOnlyMode;
+
+  /// No description provided for @enableFastSync.
+  ///
+  /// In en, this message translates to:
+  /// **'Enable synchronization every 2 seconds'**
+  String get enableFastSync;
+
+  /// No description provided for @fastSyncEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Fast synchronization enabled: every 2 seconds'**
+  String get fastSyncEnabled;
+
+  /// No description provided for @defaultSyncEnabled.
+  ///
+  /// In en, this message translates to:
+  /// **'Default synchronization enabled: every 30 seconds'**
+  String get defaultSyncEnabled;
+
+  /// No description provided for @realtimeConsole.
+  ///
+  /// In en, this message translates to:
+  /// **'WebSocket console'**
+  String get realtimeConsole;
+
+  /// No description provided for @websocketConnected.
+  ///
+  /// In en, this message translates to:
+  /// **'WS connected'**
+  String get websocketConnected;
+
+  /// No description provided for @websocketDisconnected.
+  ///
+  /// In en, this message translates to:
+  /// **'WS disconnected'**
+  String get websocketDisconnected;
+
+  /// No description provided for @channelSubscribed.
+  ///
+  /// In en, this message translates to:
+  /// **'Channel subscribed'**
+  String get channelSubscribed;
+
+  /// No description provided for @channelNotSubscribed.
+  ///
+  /// In en, this message translates to:
+  /// **'Not subscribed'**
+  String get channelNotSubscribed;
+
+  /// No description provided for @realtimeHistoryEmpty.
+  ///
+  /// In en, this message translates to:
+  /// **'No events yet'**
+  String get realtimeHistoryEmpty;
 
   /// No description provided for @subtaskDeleted.
   ///

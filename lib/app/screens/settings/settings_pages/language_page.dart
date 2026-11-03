@@ -14,7 +14,7 @@ class LanguagePage extends StatelessWidget {
     final localeProvider = context.watch<LocaleProvider>();
     final currentCode = localeProvider.locale.languageCode;
 
-    final languages = const [
+    const languages = [
       {'code': 'ru', 'label': 'Русский', 'emoji': '🇷🇺'},
       {'code': 'kk', 'label': 'Қазақша', 'emoji': '🇰🇿'},
       {'code': 'en', 'label': 'English', 'emoji': '🇬🇧'},
@@ -37,7 +37,9 @@ class LanguagePage extends StatelessWidget {
               selected: isSelected,
               onTap: () async {
                 await localeProvider.setLocale(Locale(code));
-                Navigator.pop(context);
+                if (context.mounted) {
+                  Navigator.pop(context);
+                }
               },
             );
           }),
@@ -81,12 +83,10 @@ class _LanguageOptionTileState extends State<_LanguageOptionTile>
   void _handleTapCancel() => _controller.reverse();
   void _handleTapUp(TapUpDetails _) {
     _controller.reverse();
-    widget.onTap();
   }
 
   @override
   Widget build(BuildContext context) {
-    final theme = Theme.of(context);
     final selected = widget.selected;
 
     return Padding(
@@ -97,8 +97,9 @@ class _LanguageOptionTileState extends State<_LanguageOptionTile>
           duration: const Duration(milliseconds: 200),
           curve: Curves.easeOut,
           decoration: BoxDecoration(
-            color:
-                selected ? ThemeColors.primary.withOpacity(0.1) : Colors.white,
+            color: selected
+                ? ThemeColors.primary.withValues(alpha: 0.1)
+                : Colors.white,
             borderRadius: BorderRadius.circular(16),
             // border: Border.all(
             //   color: selected ? theme.colorScheme.primary.withOpacity(0.35) : const Color(0xFFECECEC),
@@ -171,7 +172,7 @@ class _EmojiBadge extends StatelessWidget {
       height: 38,
       alignment: Alignment.center,
       decoration: BoxDecoration(
-        color: ThemeColors.primary.withOpacity(0.1),
+        color: ThemeColors.primary.withValues(alpha: 0.1),
         borderRadius: BorderRadius.circular(12),
       ),
       child: Text(

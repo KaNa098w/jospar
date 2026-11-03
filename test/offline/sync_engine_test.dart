@@ -36,16 +36,15 @@ void main() {
     );
   }
 
-  Map<String, dynamic> importDocument(http.Request request) {
+  Map<String, dynamic> operationDocument(http.Request request) {
     expect(request.headers['authorization'], 'Bearer token');
     expect(request.headers['accept'], 'application/json');
-    expect(request.headers['content-type'], startsWith('multipart/form-data;'));
-    expect(request.body, contains('name="file"'));
-    expect(request.body, contains('filename="sync.json"'));
-    final start = request.body.indexOf('{');
-    final end = request.body.lastIndexOf('}');
-    return jsonDecode(request.body.substring(start, end + 1))
-        as Map<String, dynamic>;
+    expect(request.headers['content-type'], 'application/json');
+    final operation = jsonDecode(request.body) as Map<String, dynamic>;
+    return {
+      'schema_version': 1,
+      'operations': [operation]
+    };
   }
 
   test('pushes pending operation, snapshots, then pulls changes', () async {
@@ -57,31 +56,24 @@ void main() {
       taskListId: null,
     );
     final requests = <http.Request>[];
+    var changesCalls = 0;
     final client = MockClient((request) async {
       requests.add(request);
       if (request.method == 'POST' &&
-          request.url.path.endsWith('/sync/import')) {
-        final body = importDocument(request);
+          request.url.path.endsWith('/sync/operations')) {
+        final body = operationDocument(request);
         expect(body['schema_version'], 1);
         final operations = body['operations'] as List;
         final operation = operations.single as Map;
-        expect(operation, isNot(contains('device_id')));
+        expect(operation['device_id'], 'device-1');
         expect(operation['type'], 'createTask');
         expect(operation['entity_id'], localId);
         expect((operation['payload'] as Map)['id'], localId);
         return http.Response(
           jsonEncode({
-            'schema_version': 1,
-            'processed': 1,
-            'failed': 0,
-            'results': [
-              {
-                'operation_id': operation['operation_id'],
-                'server_id': localId,
-                'entity_version': 1,
-                'status': 'processed',
-              }
-            ],
+            'operation_id': operation['operation_id'],
+            'server_id': localId,
+            'entity_version': 1,
           }),
           200,
         );
@@ -103,22 +95,28 @@ void main() {
         );
       }
       if (request.url.path.endsWith('/sync/changes')) {
-        expect(request.url.queryParameters['cursor'], 'snapshot-1');
+        changesCalls++;
+        expect(
+          request.url.queryParameters['cursor'],
+          changesCalls == 1 ? 'snapshot-1' : 'cursor-2',
+        );
         return http.Response(
           jsonEncode({
-            'changes': [
-              {
-                'entity': 'task',
-                'action': 'updated',
-                'version': 2,
-                'data': {
-                  'id': localId,
-                  'name': 'Realtime server task',
-                  'version': 2,
-                },
-              },
-            ],
-            'next_cursor': 'cursor-2',
+            'changes': changesCalls == 1
+                ? []
+                : [
+                    {
+                      'entity': 'task',
+                      'action': 'updated',
+                      'version': 2,
+                      'data': {
+                        'id': localId,
+                        'name': 'Realtime server task',
+                        'version': 2,
+                      },
+                    },
+                  ],
+            'next_cursor': changesCalls == 1 ? 'cursor-2' : 'cursor-3',
             'has_more': false,
           }),
           200,
@@ -129,12 +127,15 @@ void main() {
 
     await engine(client).synchronize(ignoreStopped: true);
 
-    expect(requests.map((request) => request.method), ['POST', 'GET', 'GET']);
+    expect(
+      requests.map((request) => request.method),
+      ['GET', 'GET', 'POST', 'GET'],
+    );
     expect(await outbox.pending('user-1'), isEmpty);
     final task = await store.taskById('user-1', localId);
     expect(task!.name, 'Realtime server task');
     expect(task.version, 2);
-    expect(await store.cursorFor('user-1'), 'cursor-2');
+    expect(await store.cursorFor('user-1'), 'cursor-3');
   });
 
   test('a concurrent caller waits for the active synchronization', () async {
@@ -182,10 +183,10 @@ void main() {
     await Future.wait([first, second]);
 
     expect(secondCompleted, isTrue);
-    expect(changesCalls, 2);
+    expect(changesCalls, 4);
   });
 
-  test('failed import operation remains queued for retry', () async {
+  test('422 validation failure becomes terminal and is not retried', () async {
     await store.createTask(
       deviceId: 'device-1',
       accountId: 'user-1',
@@ -195,28 +196,18 @@ void main() {
     );
     var pushCalls = 0;
     final client = MockClient((request) async {
-      if (request.url.path.endsWith('/sync/import')) {
+      if (request.url.path.endsWith('/sync/operations')) {
         pushCalls++;
-        final body = importDocument(request);
-        final operation = (body['operations'] as List).single as Map;
+        operationDocument(request);
         return http.Response(
           jsonEncode({
-            'schema_version': 1,
-            'processed': 0,
-            'failed': 1,
-            'results': [
-              {
-                'operation_id': operation['operation_id'],
-                'status': 'failed',
-                'error': {
-                  'code': 'validation_error',
-                  'message': 'Invalid payload',
-                  'details': {},
-                },
-              }
-            ],
+            'error': {
+              'code': 'validation_error',
+              'message': 'Invalid payload',
+              'details': {},
+            },
           }),
-          200,
+          422,
         );
       }
       if (request.url.path.endsWith('/sync/snapshot')) {
@@ -246,7 +237,7 @@ void main() {
     final rows = await db.select(db.outboxTable).get();
     expect(pushCalls, 1);
     expect(rows, hasLength(1));
-    expect(rows.single.isTerminal, isFalse);
+    expect(rows.single.isTerminal, isTrue);
     expect(rows.single.retryCount, 1);
     expect(rows.single.lastError, contains('Invalid payload'));
   });
@@ -284,8 +275,8 @@ void main() {
     final queued = (await outbox.pending('user-1')).single;
 
     final client = MockClient((request) async {
-      if (request.url.path.endsWith('/sync/import')) {
-        final body = importDocument(request);
+      if (request.url.path.endsWith('/sync/operations')) {
+        final body = operationDocument(request);
         final operation = (body['operations'] as List).single as Map;
         expect(operation['operation_id'], queued.operationId);
         expect(operation['type'], 'toggleTaskCompleted');
@@ -296,17 +287,9 @@ void main() {
         expect(payload['is_completed'], isA<bool>());
         return http.Response(
           jsonEncode({
-            'schema_version': 1,
-            'processed': 1,
-            'failed': 0,
-            'results': [
-              {
-                'operation_id': queued.operationId,
-                'status': 'processed',
-                'server_id': 'task-1',
-                'entity_version': 8,
-              },
-            ],
+            'operation_id': queued.operationId,
+            'server_id': 'task-1',
+            'entity_version': 8,
           }),
           200,
         );
@@ -354,15 +337,7 @@ void main() {
         task.updatedAt.toUtc().toIso8601String(), '2026-08-13T10:30:00.000Z');
   });
 
-  test('import orders lists, root tasks, child tasks, then shares', () async {
-    await outbox.enqueue(
-      deviceId: 'device-1',
-      accountId: 'user-1',
-      type: OutboxOpType.createShare,
-      entityId: 'root-1',
-      payload: const {'task_id': 'root-1'},
-      operationId: 'share-op',
-    );
+  test('pushes queued operations individually', () async {
     await outbox.enqueue(
       deviceId: 'device-1',
       accountId: 'user-1',
@@ -402,28 +377,17 @@ void main() {
       operationId: 'list-op',
     );
 
+    final pushedIds = <String>[];
     final client = MockClient((request) async {
-      if (request.url.path.endsWith('/sync/import')) {
-        final body = importDocument(request);
-        final operations = body['operations'] as List;
-        expect(
-          operations.map((item) => (item as Map)['operation_id']),
-          ['list-op', 'root-op', 'child-op', 'share-op'],
-        );
+      if (request.url.path.endsWith('/sync/operations')) {
+        final body = operationDocument(request);
+        final operation = (body['operations'] as List).single as Map;
+        pushedIds.add(operation['operation_id'] as String);
         return http.Response(
           jsonEncode({
-            'schema_version': 1,
-            'processed': 4,
-            'failed': 0,
-            'results': [
-              for (final item in operations)
-                {
-                  'operation_id': (item as Map)['operation_id'],
-                  'server_id': item['entity_id'],
-                  'entity_version': 1,
-                  'status': 'processed',
-                }
-            ],
+            'operation_id': operation['operation_id'],
+            'server_id': operation['entity_id'],
+            'entity_version': 1,
           }),
           200,
         );
@@ -447,6 +411,7 @@ void main() {
     await engine(client).synchronize(ignoreStopped: true);
 
     expect(await outbox.pending('user-1'), isEmpty);
+    expect(pushedIds, ['child-op', 'root-op', 'list-op']);
   });
 
   test('410 cursor_expired loads snapshot and resumes from new cursor',
@@ -493,7 +458,96 @@ void main() {
 
     await engine(client).synchronize(ignoreStopped: true);
 
-    expect(changesCalls, 2);
+    expect(changesCalls, 3);
     expect(await store.cursorFor('user-1'), 'final-cursor');
+  });
+
+  test('version conflict pulls, renews operation id, and retries', () async {
+    await store.applyChangesPage(
+      userId: 'user-1',
+      changes: const [
+        {
+          'entity': 'task',
+          'action': 'updated',
+          'version': 1,
+          'data': {'id': 'task-1', 'name': 'Old', 'version': 1},
+        },
+      ],
+      nextCursor: 'cursor-1',
+      pendingEntityIds: const {},
+    );
+    await store.updateTask(
+      deviceId: 'device-1',
+      accountId: 'user-1',
+      id: 'task-1',
+      patch: const {'name': 'My edit'},
+    );
+    final originalId = (await outbox.pending('user-1')).single.operationId;
+    final sentIds = <String>[];
+    var changesCalls = 0;
+    final client = MockClient((request) async {
+      if (request.url.path.endsWith('/sync/operations')) {
+        final operation = jsonDecode(request.body) as Map<String, dynamic>;
+        sentIds.add(operation['operation_id'] as String);
+        if (sentIds.length == 1) {
+          expect((operation['payload'] as Map)['expected_version'], 2);
+          return http.Response(
+            jsonEncode({
+              'error': {
+                'code': 'version_conflict',
+                'message': 'Conflict',
+                'details': {
+                  'expected_version': 2,
+                  'current_version': 3,
+                },
+              },
+            }),
+            409,
+          );
+        }
+        expect((operation['payload'] as Map)['expected_version'], 3);
+        return http.Response(
+          jsonEncode({
+            'operation_id': operation['operation_id'],
+            'server_id': 'task-1',
+            'entity_version': 4,
+          }),
+          200,
+        );
+      }
+      if (request.url.path.endsWith('/sync/changes')) {
+        changesCalls++;
+        return http.Response(
+          jsonEncode({
+            'changes': changesCalls == 1
+                ? [
+                    {
+                      'entity': 'task',
+                      'action': 'updated',
+                      'version': 2,
+                      'data': {
+                        'id': 'task-1',
+                        'name': 'Other device edit',
+                        'version': 2,
+                      },
+                    }
+                  ]
+                : [],
+            'next_cursor': 'cursor-${changesCalls + 1}',
+            'has_more': false,
+          }),
+          200,
+        );
+      }
+      return http.Response('not found', 404);
+    });
+
+    await engine(client).synchronize(ignoreStopped: true);
+
+    expect(sentIds, hasLength(2));
+    expect(sentIds.first, originalId);
+    expect(sentIds.last, isNot(originalId));
+    expect((await store.taskById('user-1', 'task-1'))!.name, 'My edit');
+    expect(await outbox.pending('user-1'), isEmpty);
   });
 }

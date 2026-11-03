@@ -15,10 +15,13 @@ import 'utils/task_color.dart';
 import 'widgets/section_header.dart';
 import 'widgets/task_list_area.dart';
 import 'widgets/task_card.dart';
+import 'widgets/task_item_widget.dart';
 import '../utils/bucketing.dart';
 import '../utils/date_utils_ext.dart' hide fmtYmd;
 
 class TaskSection extends StatefulWidget {
+  final GlobalKey? diaryTargetKey;
+  final ValueNotifier<int>? diaryArrivals;
   final String title;
   final String tasksKey;
   final VoidCallback? onBeforeOpenModal;
@@ -43,6 +46,8 @@ class TaskSection extends StatefulWidget {
 
   const TaskSection({
     super.key,
+    this.diaryTargetKey,
+    this.diaryArrivals,
     required this.title,
     required this.tasksKey,
     this.onBeforeOpenModal,
@@ -76,6 +81,8 @@ class TaskSectionState extends State<TaskSection>
   late bool isExpanded;
   bool isLoading = false;
   final Set<String> _disappearingTaskIds = {};
+  final Set<String> _pendingTaskIds = {};
+  final Set<OverlayEntry> _flights = {};
 
   late final AnimationController _controller;
   late final Animation<double> _heightFactor;
@@ -172,6 +179,11 @@ class TaskSectionState extends State<TaskSection>
 
   @override
   void dispose() {
+    for (final entry in _flights) {
+      entry.remove();
+      entry.dispose();
+    }
+    _flights.clear();
     _controller.dispose();
     super.dispose();
   }
@@ -187,10 +199,15 @@ class TaskSectionState extends State<TaskSection>
     });
   }
 
-  Future<void> _toggleTask(int index) async {
+  Future<void> _toggleTask(int index, BuildContext sourceContext) async {
     final t = tasks[index];
     final taskId = t.id ?? '';
+    if (!_pendingTaskIds.add(taskId)) return;
     final newVal = !(t.isCompleted ?? false);
+    final sourceBox = sourceContext.findRenderObject() as RenderBox?;
+    final sourceRect = sourceBox != null && sourceBox.hasSize
+        ? sourceBox.localToGlobal(Offset.zero) & sourceBox.size
+        : null;
 
     setState(() => t.isCompleted = newVal);
 
@@ -198,11 +215,13 @@ class TaskSectionState extends State<TaskSection>
       final update = _taskService.updateTask(context, id: taskId);
       final animation = () async {
         if (!newVal) return;
-        // Сначала показываем установленную галочку, затем мягко убираем
-        // завершённую карточку с главного экрана.
-        await Future<void>.delayed(const Duration(milliseconds: 120));
-        if (mounted) setState(() => _disappearingTaskIds.add(taskId));
-        await Future<void>.delayed(const Duration(milliseconds: 320));
+        final reducedMotion = MediaQuery.disableAnimationsOf(context);
+        if (!reducedMotion) {
+          await Future<void>.delayed(const Duration(milliseconds: 100));
+        }
+        if (!mounted) return;
+        setState(() => _disappearingTaskIds.add(taskId));
+        await _flyToDiary(t, sourceRect, reducedMotion);
       }();
       await Future.wait([update, animation]);
       if (!mounted) return;
@@ -217,7 +236,86 @@ class TaskSectionState extends State<TaskSection>
       ScaffoldMessenger.of(context).showSnackBar(
         SnackBar(content: Text('Не удалось обновить задачу: $e')),
       );
+    } finally {
+      _pendingTaskIds.remove(taskId);
     }
+  }
+
+  Future<void> _flyToDiary(
+      TaskItems task, Rect? source, bool reducedMotion) async {
+    final target = widget.diaryTargetKey?.currentContext?.findRenderObject();
+    final overlay = Overlay.maybeOf(context);
+    if (reducedMotion ||
+        source == null ||
+        target is! RenderBox ||
+        !target.hasSize ||
+        overlay == null) {
+      return;
+    }
+    final overlayBox = overlay.context.findRenderObject() as RenderBox;
+    final destination = target.localToGlobal(target.size.center(Offset.zero));
+    // Skip flights to a header scrolled outside the visible viewport.
+    if (!(Offset.zero & MediaQuery.sizeOf(context)).contains(destination)) {
+      return;
+    }
+    final start = overlayBox.globalToLocal(source.center);
+    final end = overlayBox.globalToLocal(destination);
+    final color = resolveTaskColor(context, task);
+    final theme = Theme.of(context);
+    final provider = context.read<GlobalProvider>();
+    final entry = OverlayEntry(
+        builder: (_) => TweenAnimationBuilder<double>(
+              tween: Tween(begin: 0, end: 1),
+              duration: const Duration(milliseconds: 420),
+              builder: (_, value, child) {
+                final t = Curves.easeInCubic.transform(value);
+                final center = Offset.lerp(start, end, t)! +
+                    Offset(28 * 4 * value * (1 - value), 0);
+                final scale = 1 - .94 * Curves.easeInQuad.transform(value);
+                final opacity = 1 - const Interval(.72, 1).transform(value);
+                return Positioned(
+                  left: center.dx - source.width / 2,
+                  top: center.dy - source.height / 2,
+                  width: source.width,
+                  height: source.height,
+                  child: IgnorePointer(
+                    child: ExcludeSemantics(
+                      child: Transform.scale(
+                        scale: scale,
+                        child: Opacity(opacity: opacity, child: child),
+                      ),
+                    ),
+                  ),
+                );
+              },
+              child: RepaintBoundary(
+                child: Theme(
+                    data: theme,
+                    child: Material(
+                      color: theme.colorScheme.surface,
+                      elevation: 3,
+                      shadowColor: color.withValues(alpha: .24),
+                      borderRadius: BorderRadius.circular(8),
+                      clipBehavior: Clip.antiAlias,
+                      child: ChangeNotifierProvider.value(
+                        value: provider,
+                        child: TaskItem(
+                            task: task,
+                            onToggle: () {},
+                            colorHex: color,
+                            completedColor: color,
+                            keepCompletedTaskActiveStyle: true),
+                      ),
+                    )),
+              ),
+            ));
+    _flights.add(entry);
+    overlay.insert(entry);
+    await Future<void>.delayed(const Duration(milliseconds: 420));
+    if (!_flights.remove(entry)) return;
+    entry.remove();
+    entry.dispose();
+    if (mounted) widget.diaryArrivals?.value++;
   }
 
   Future<void> _requestDelete(TaskItems task) async {
@@ -399,6 +497,10 @@ class TaskSectionState extends State<TaskSection>
       crossAxisAlignment: CrossAxisAlignment.start,
       children: [
         TaskSectionHeader(
+          diaryTargetKey:
+              widget.onHeaderCountTap != null ? widget.diaryTargetKey : null,
+          diaryArrivals:
+              widget.onHeaderCountTap != null ? widget.diaryArrivals : null,
           title: widget.title,
           completed: widget.headerCompletedCount ?? completedCount,
           total: widget.headerTotalCount ?? tasks.length,
@@ -441,7 +543,9 @@ class TaskSectionState extends State<TaskSection>
                   ).format(taskDate!).replaceAll('.', '')
                 : null;
             return AnimatedSwitcher(
-              duration: const Duration(milliseconds: 320),
+              duration: MediaQuery.disableAnimationsOf(context)
+                  ? Duration.zero
+                  : const Duration(milliseconds: 320),
               switchOutCurve: Curves.easeInOutCubic,
               transitionBuilder: (child, animation) => FadeTransition(
                 opacity: animation,
@@ -455,19 +559,21 @@ class TaskSectionState extends State<TaskSection>
                   ? SizedBox.shrink(key: ValueKey('hidden-${task.id}'))
                   : KeyedSubtree(
                       key: ValueKey('visible-${task.id}'),
-                      child: TaskCard(
-                        task: task,
-                        color: resolveTaskColor(context, task),
-                        isHighlighted: task.id == widget.highlightedTaskId,
-                        trailingText: trailingText,
-                        onToggle: () => _toggleTask(index),
-                        onDelete: (t) => _requestDelete(t),
-                        onConfirmDelete: _confirmDelete,
-                        onOpenEditor: (t) => _openEditor(t, index),
-                        onDragStarted: widget.onDragStart,
-                        onDragEnded: widget.onDragEnd,
-                        onDragUpdate: widget.onDragUpdate,
-                      ),
+                      child: Builder(
+                          builder: (cardContext) => TaskCard(
+                                task: task,
+                                color: resolveTaskColor(context, task),
+                                isHighlighted:
+                                    task.id == widget.highlightedTaskId,
+                                trailingText: trailingText,
+                                onToggle: () => _toggleTask(index, cardContext),
+                                onDelete: (t) => _requestDelete(t),
+                                onConfirmDelete: _confirmDelete,
+                                onOpenEditor: (t) => _openEditor(t, index),
+                                onDragStarted: widget.onDragStart,
+                                onDragEnded: widget.onDragEnd,
+                                onDragUpdate: widget.onDragUpdate,
+                              )),
                     ),
             );
           },

@@ -38,7 +38,7 @@ void main() {
     expect(task.isDirty, isTrue);
     expect(operations, hasLength(1));
     expect(operations.single.type, OutboxOpType.createTask);
-    expect(operations.single.entityId, isNull);
+    expect(operations.single.entityId, id);
     expect(operations.single.payload, {
       'id': id,
       'name': 'Offline task',
@@ -50,7 +50,6 @@ void main() {
       'task_list_id': null,
       'parent_task_id': null,
       'is_completed': false,
-      'trashed': false,
     });
   });
 
@@ -133,10 +132,50 @@ void main() {
     final operations = await outbox.pending('user-1');
     final completion = operations.last;
     expect(completion.type, OutboxOpType.toggleTaskCompleted);
-    expect(completion.payload, {'is_completed': true});
+    expect(completion.payload, {'is_completed': true, 'expected_version': 0});
     expect(completion.payload, isNot(contains('updated_at')));
-    expect(completion.payload, isNot(contains('version')));
+    expect(completion.payload['expected_version'], 0);
     expect((await store.taskById('user-1', id))!.isCompleted, isTrue);
+  });
+
+  test('rapid updates of one task are coalesced before sending', () async {
+    final id = await store.createTask(
+      deviceId: 'device-1',
+      accountId: 'user-1',
+      name: 'Task',
+      date: null,
+      taskListId: null,
+    );
+
+    await store.updateTask(
+      deviceId: 'device-1',
+      accountId: 'user-1',
+      id: id,
+      patch: const {'name': 'A'},
+    );
+    await store.updateTask(
+      deviceId: 'device-1',
+      accountId: 'user-1',
+      id: id,
+      patch: const {'name': 'AB'},
+    );
+    await store.updateTask(
+      deviceId: 'device-1',
+      accountId: 'user-1',
+      id: id,
+      patch: const {'name': 'ABC', 'note': 'Local note'},
+    );
+
+    final operations = await outbox.pending('user-1');
+    final updates = operations
+        .where((operation) => operation.type == OutboxOpType.updateTask)
+        .toList();
+    expect(updates, hasLength(1));
+    expect(updates.single.payload, {
+      'name': 'ABC',
+      'note': 'Local note',
+      'expected_version': 0,
+    });
   });
 
   test('restoring a completed task queues an explicit false completion',
@@ -168,7 +207,10 @@ void main() {
     final restoration = (await outbox.pending('user-1')).last;
     final row = await store.taskById('user-1', id);
     expect(restoration.type, OutboxOpType.toggleTaskCompleted);
-    expect(restoration.payload, {'is_completed': false});
+    expect(
+      restoration.payload,
+      {'is_completed': false, 'expected_version': 0},
+    );
     expect(row!.isCompleted, isFalse);
     expect(row.dateYmd, '2026-08-10');
     expect(row.position, 4);
@@ -296,6 +338,13 @@ void main() {
               'id': 'child-1',
               'name': 'Shared subtask',
               'is_completed': true,
+              'completed_by_user_id': 'user-1',
+              'completed_by': {
+                'id': 'user-1',
+                'name': 'Editor',
+                'avatar_url': 'https://example.com/editor.png',
+              },
+              'completed_at': '2026-09-02T10:15:30.000Z',
               'version': 1,
             },
           ],
@@ -311,7 +360,36 @@ void main() {
     expect(child?.parentServerId, 'parent-1');
     expect(child?.name, 'Shared subtask');
     expect(child?.isCompleted, isTrue);
+    expect(child?.completedByUserId, 'user-1');
+    expect(jsonDecode(child!.completedByJson!), {
+      'id': 'user-1',
+      'name': 'Editor',
+      'avatar_url': 'https://example.com/editor.png',
+    });
+    expect(
+      child.completedAt?.toUtc(),
+      DateTime.parse('2026-09-02T10:15:30.000Z'),
+    );
+    expect(store.taskRowToJson(child)['completed_by'], {
+      'id': 'user-1',
+      'name': 'Editor',
+      'avatar_url': 'https://example.com/editor.png',
+    });
     expect(collaborators, hasLength(2));
+
+    await store.updateTask(
+      deviceId: 'device-1',
+      accountId: 'user-1',
+      id: 'child-1',
+      type: OutboxOpType.toggleTaskCompleted,
+      patch: {'is_completed': false},
+    );
+
+    final restored = await store.taskById('user-1', 'child-1');
+    expect(restored?.isCompleted, isFalse);
+    expect(restored?.completedByUserId, isNull);
+    expect(restored?.completedByJson, isNull);
+    expect(restored?.completedAt, isNull);
   });
 
   test('reopened share hydrates its complete local subtask tree', () async {

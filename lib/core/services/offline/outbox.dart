@@ -14,8 +14,6 @@ enum OutboxOpType {
   createTaskList,
   updateTaskList,
   deleteTaskList,
-  createShare,
-  revokeShare,
 }
 
 class OutboxOp {
@@ -46,6 +44,7 @@ class OutboxStore {
   OutboxStore(this.db);
 
   final AppDb db;
+  final Set<int> _sendingRows = <int>{};
 
   static String newId() => const Uuid().v4();
 
@@ -72,6 +71,84 @@ class OutboxStore {
             createdAt: Value(now),
           ),
         );
+  }
+
+  Future<void> enqueueOrMergeTaskMutation({
+    required String deviceId,
+    required String accountId,
+    required OutboxOpType type,
+    required String entityId,
+    required Map<String, dynamic> payload,
+    DateTime? clientTimestamp,
+  }) async {
+    final rows = await (db.select(db.outboxTable)
+          ..where(
+            (row) =>
+                row.accountId.equals(accountId) &
+                row.entityId.equals(entityId) &
+                row.type.equals(type.name) &
+                row.isTerminal.equals(false) &
+                row.retryCount.equals(0) &
+                row.lastError.isNull(),
+          )
+          ..orderBy([(row) => OrderingTerm.desc(row.createdAt)]))
+        .get();
+    for (final row in rows) {
+      if (_sendingRows.contains(row.id)) continue;
+      final decoded = jsonDecode(row.payloadJson);
+      final merged = decoded is Map
+          ? Map<String, dynamic>.from(decoded)
+          : <String, dynamic>{};
+      merged.addAll(payload);
+      await (db.update(db.outboxTable)..where((item) => item.id.equals(row.id)))
+          .write(
+        OutboxTableCompanion(
+          payloadJson: Value(jsonEncode(merged)),
+          nextAttemptAt: Value(DateTime.now().toUtc()),
+          lastError: const Value(null),
+        ),
+      );
+      return;
+    }
+    await enqueue(
+      deviceId: deviceId,
+      accountId: accountId,
+      type: type,
+      entityId: entityId,
+      payload: payload,
+      clientTimestamp: clientTimestamp,
+    );
+  }
+
+  void markSending(OutboxOp operation) {
+    _sendingRows.add(operation.localRowId);
+  }
+
+  void unmarkSending(OutboxOp operation) {
+    _sendingRows.remove(operation.localRowId);
+  }
+
+  Future<OutboxOp> rebase(
+    OutboxOp operation, {
+    required int version,
+  }) async {
+    final payload = Map<String, dynamic>.from(operation.payload)
+      ..remove('version')
+      ..['expected_version'] = version;
+    await (db.update(db.outboxTable)
+          ..where((row) => row.id.equals(operation.localRowId)))
+        .write(OutboxTableCompanion(payloadJson: Value(jsonEncode(payload))));
+    return OutboxOp(
+      localRowId: operation.localRowId,
+      operationId: operation.operationId,
+      deviceId: operation.deviceId,
+      type: operation.type,
+      entityId: operation.entityId,
+      payload: payload,
+      clientTimestamp: operation.clientTimestamp,
+      retries: operation.retries,
+      lastError: operation.lastError,
+    );
   }
 
   Future<List<OutboxOp>> pending(String accountId) async {
@@ -180,6 +257,35 @@ class OutboxStore {
         .go();
   }
 
+  Future<OutboxOp> renewForRetry(
+    OutboxOp operation, {
+    required Map<String, dynamic> payload,
+  }) async {
+    final operationId = newId();
+    final now = DateTime.now().toUtc();
+    await (db.update(db.outboxTable)
+          ..where((row) => row.id.equals(operation.localRowId)))
+        .write(
+      OutboxTableCompanion(
+        operationId: Value(operationId),
+        payloadJson: Value(jsonEncode(payload)),
+        nextAttemptAt: Value(now),
+        lastError: const Value(null),
+        retryCount: Value(operation.retries + 1),
+      ),
+    );
+    return OutboxOp(
+      localRowId: operation.localRowId,
+      operationId: operationId,
+      deviceId: operation.deviceId,
+      type: operation.type,
+      entityId: operation.entityId,
+      payload: payload,
+      clientTimestamp: now,
+      retries: operation.retries + 1,
+    );
+  }
+
   Future<void> recordFailure(
     OutboxOp operation,
     Object error, {
@@ -204,9 +310,8 @@ class OutboxStore {
   Future<void> clear() => db.delete(db.outboxTable).go();
 
   int _backoffSeconds(int retries) {
-    if (retries <= 1) return 1;
-    final seconds = 1 << (retries - 1).clamp(0, 6);
-    return seconds > 60 ? 60 : seconds;
+    const delays = [1, 2, 5, 10, 30];
+    return delays[(retries - 1).clamp(0, delays.length - 1)];
   }
 
   OutboxOp _fromRow(OutboxTableData row) {

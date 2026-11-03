@@ -36,7 +36,6 @@ class SqliteStore {
       'task_list_id': taskListId,
       'parent_task_id': parentTaskId,
       'is_completed': false,
-      'trashed': false,
     };
 
     await db.transaction(() async {
@@ -61,7 +60,7 @@ class SqliteStore {
         deviceId: deviceId,
         accountId: accountId,
         type: OutboxOpType.createTask,
-        entityId: null,
+        entityId: id,
         payload: payload,
         clientTimestamp: now,
       );
@@ -98,19 +97,89 @@ class SqliteStore {
           taskListServerId: _nullableValueIfKey<String>(patch, 'task_list_id'),
           parentServerId: _nullableValueIfKey<String>(patch, 'parent_task_id'),
           isCompleted: _valueIfKey<bool>(patch, 'is_completed'),
+          completedByUserId: patch['is_completed'] == false
+              ? const Value(null)
+              : const Value.absent(),
+          completedByJson: patch['is_completed'] == false
+              ? const Value(null)
+              : const Value.absent(),
+          completedAt: patch['is_completed'] == false
+              ? const Value(null)
+              : const Value.absent(),
           isDirty: const Value(true),
           updatedAt: Value(now),
         ),
       );
-      await outbox.enqueue(
+      await outbox.enqueueOrMergeTaskMutation(
         deviceId: deviceId,
         accountId: accountId,
         type: type,
         entityId: id,
-        payload: patch,
+        payload: {...patch, 'expected_version': row.version},
         clientTimestamp: now,
       );
     });
+  }
+
+  Future<void> reapplyOptimisticOperation(
+    String accountId,
+    OutboxOp operation,
+  ) async {
+    final id = operation.entityId;
+    if (id == null) return;
+    if (operation.type == OutboxOpType.updateTaskList) {
+      final patch = operation.payload;
+      await (db.update(db.taskListsTable)
+            ..where((table) =>
+                table.serverId.equals(id) & table.accountId.equals(accountId)))
+          .write(
+        TaskListsTableCompanion(
+          name: _valueIfKey<String>(patch, 'name'),
+          colorHex: _valueIfKey<String>(patch, 'color_hex'),
+          isHidden: _valueIfKey<bool>(patch, 'is_hidden'),
+          isDirty: const Value(true),
+        ),
+      );
+      return;
+    }
+    if (operation.type == OutboxOpType.deleteTask ||
+        operation.type == OutboxOpType.restoreTask) {
+      final trashed = operation.type == OutboxOpType.deleteTask;
+      final ids = await _taskTreeIds(accountId, id);
+      await (db.update(db.tasksTable)
+            ..where((table) =>
+                table.serverId.isIn(ids) & table.accountId.equals(accountId)))
+          .write(
+        TasksTableCompanion(
+          trashed: Value(trashed),
+          isDirty: const Value(true),
+        ),
+      );
+      return;
+    }
+    if (operation.type != OutboxOpType.updateTask &&
+        operation.type != OutboxOpType.toggleTaskCompleted) {
+      return;
+    }
+    final patch = operation.payload;
+    await (db.update(db.tasksTable)
+          ..where((table) =>
+              table.serverId.equals(id) & table.accountId.equals(accountId)))
+        .write(
+      TasksTableCompanion(
+        name: _valueIfKey<String>(patch, 'name'),
+        note: _nullableValueIfKey<String>(patch, 'note'),
+        notificationTime:
+            _nullableValueIfKey<String>(patch, 'notification_time'),
+        dateYmd: _nullableValueIfKey<String>(patch, 'date'),
+        urgency: _nullableValueIfKey<String>(patch, 'urgency'),
+        position: _nullableValueIfKey<int>(patch, 'position'),
+        taskListServerId: _nullableValueIfKey<String>(patch, 'task_list_id'),
+        parentServerId: _nullableValueIfKey<String>(patch, 'parent_task_id'),
+        isCompleted: _valueIfKey<bool>(patch, 'is_completed'),
+        isDirty: const Value(true),
+      ),
+    );
   }
 
   Future<void> setTrashed({
@@ -120,6 +189,8 @@ class SqliteStore {
     required bool trashed,
   }) async {
     final now = DateTime.now().toUtc();
+    final row = await taskById(accountId, id);
+    if (row == null) throw StateError('Задача не найдена локально: $id');
     await db.transaction(() async {
       final ids = await _taskTreeIds(accountId, id);
       await (db.update(db.tasksTable)
@@ -139,7 +210,7 @@ class SqliteStore {
         accountId: accountId,
         type: trashed ? OutboxOpType.deleteTask : OutboxOpType.restoreTask,
         entityId: id,
-        payload: const {},
+        payload: {'expected_version': row.version},
         clientTimestamp: now,
       );
     });
@@ -201,7 +272,7 @@ class SqliteStore {
         deviceId: deviceId,
         accountId: accountId,
         type: OutboxOpType.createTaskList,
-        entityId: null,
+        entityId: id,
         payload: payload,
         clientTimestamp: now,
       );
@@ -946,6 +1017,11 @@ class SqliteStore {
       note: Value(json['note']?.toString()),
       notificationTime: Value(json['notification_time']?.toString()),
       isCompleted: Value(json['is_completed'] == true),
+      completedByUserId: Value(json['completed_by_user_id']?.toString()),
+      completedByJson: Value(
+        json['completed_by'] == null ? null : jsonEncode(json['completed_by']),
+      ),
+      completedAt: Value(_parseDate(json['completed_at'])),
       trashed: Value(json['trashed'] == true),
       urgency: Value(json['urgency']?.toString()),
       position: Value(_asInt(json['position'])),
@@ -1002,6 +1078,9 @@ class SqliteStore {
       'task_list_id': row.taskListServerId,
       'parent_task_id': row.parentServerId,
       'is_completed': row.isCompleted,
+      'completed_by_user_id': row.completedByUserId,
+      'completed_by': _decodeObject(row.completedByJson),
+      'completed_at': row.completedAt?.toUtc().toIso8601String(),
       'trashed': row.trashed,
       'hash': row.hash,
       'is_shared': row.isShared,
@@ -1058,5 +1137,11 @@ class SqliteStore {
         .whereType<Map>()
         .map((item) => Map<String, dynamic>.from(item))
         .toList(growable: false);
+  }
+
+  Map<String, dynamic>? _decodeObject(String? value) {
+    if (value == null || value.isEmpty) return null;
+    final decoded = jsonDecode(value);
+    return decoded is Map ? Map<String, dynamic>.from(decoded) : null;
   }
 }

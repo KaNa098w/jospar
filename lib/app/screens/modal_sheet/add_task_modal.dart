@@ -1,4 +1,5 @@
 // add_task_modal.dart
+import 'dart:async';
 import 'dart:convert';
 
 import 'package:flutter/foundation.dart';
@@ -13,6 +14,7 @@ import 'package:provider/provider.dart';
 import 'package:jospar/core/constants/provider.dart';
 import 'package:jospar/app/widgets/accept_button.dart';
 import 'package:jospar/core/services/reminder_service.dart';
+import 'package:jospar/core/services/offline/offline_runtime.dart';
 
 import 'action_panel.dart';
 import 'preview_task_list.dart';
@@ -43,6 +45,12 @@ List<Map<String, dynamic>> extractSubtasks(TaskItems? task) {
           'completed': (c.isCompleted == true),
           'position': c.position,
           if (c.id != null) '_id': c.id,
+          if (c.completedByUserId != null)
+            'completed_by_user_id': c.completedByUserId,
+          if (c.completedBy != null) 'completed_by': c.completedBy,
+          if (c.completedAt != null) 'completed_at': c.completedAt,
+          if (c.collaborators != null || task?.collaborators != null)
+            'collaborators': c.collaborators ?? task?.collaborators,
         };
       }).toList();
       moveCompletedSubtasksToBottom(result);
@@ -189,6 +197,9 @@ Future<void> showAddTaskModal({
                   'name': child.name,
                   'completed': child.isCompleted,
                   'position': child.position,
+                  'completed_by_user_id': child.completedByUserId,
+                  'completed_by': child.completedBy,
+                  'completed_at': child.completedAt,
                 })
             .toList(growable: false),
       });
@@ -249,6 +260,7 @@ Future<void> showAddTaskModal({
                 subtasks
                   ..clear()
                   ..addAll(extractSubtasks(remoteTask));
+                existingTask?.children = remoteTask.children;
                 existingTask?.isCompleted = remoteTask.isCompleted;
                 existingTask?.notificationTime = remoteTask.notificationTime;
                 existingTask?.isShared = remoteTask.isShared;
@@ -341,7 +353,7 @@ Future<void> showAddTaskModal({
         Future<void> _closeAndSaveChanges() async {
           if (closing || _saving) return;
           FocusManager.instance.primaryFocus?.unfocus();
-          final hasChanges = draftSignature() != initialDraftSignature;
+          final hasChanges = draftSignature() != lastAppliedDraftSignature;
           final hasNewTaskContent = titleController.text.trim().isNotEmpty ||
               subtasks.any(
                 (item) => (item['title'] ?? '').toString().trim().isNotEmpty,
@@ -539,15 +551,39 @@ Future<void> showAddTaskModal({
                                         }
                                       },
                                       onToggleComplete: (i) {
+                                        final previousDraftBaseline =
+                                            lastAppliedDraftSignature;
+                                        final draftWasSynced =
+                                            draftSignature() ==
+                                                previousDraftBaseline;
                                         final toggledSubtask = subtasks[i];
                                         final prev =
                                             toggledSubtask['completed'] == true;
+                                        final previousCompletedByUserId =
+                                            toggledSubtask[
+                                                'completed_by_user_id'];
+                                        final previousCompletedBy =
+                                            toggledSubtask['completed_by'];
+                                        final previousCompletedAt =
+                                            toggledSubtask['completed_at'];
                                         setState(() {
                                           toggledSubtask['completed'] = !prev;
+                                          if (prev) {
+                                            toggledSubtask
+                                                .remove('completed_by_user_id');
+                                            toggledSubtask
+                                                .remove('completed_by');
+                                            toggledSubtask
+                                                .remove('completed_at');
+                                          }
                                           moveCompletedSubtasksToBottom(
                                             subtasks,
                                           );
                                         });
+                                        if (draftWasSynced) {
+                                          lastAppliedDraftSignature =
+                                              draftSignature();
+                                        }
                                         final allCompleted = subtasks
                                                 .isNotEmpty &&
                                             subtasks.every((subtask) =>
@@ -566,6 +602,7 @@ Future<void> showAddTaskModal({
                                               context,
                                               id: childId,
                                             );
+                                            if (!context.mounted) return;
                                             final parentId = persistedTaskId;
                                             if (parentId != null &&
                                                 parentId.isNotEmpty &&
@@ -580,6 +617,12 @@ Future<void> showAddTaskModal({
                                               existingTask?.isCompleted =
                                                   allCompleted;
                                             }
+                                            if (!context.mounted) return;
+                                            await OfflineRuntime.syncEngine
+                                                ?.synchronize(
+                                              ignoreStopped: true,
+                                            );
+                                            if (!context.mounted) return;
                                             await context
                                                 .read<GlobalProvider>()
                                                 .refreshTasks(context);
@@ -589,10 +632,32 @@ Future<void> showAddTaskModal({
                                               setState(() {
                                                 toggledSubtask['completed'] =
                                                     prev;
+                                                if (previousCompletedByUserId !=
+                                                    null) {
+                                                  toggledSubtask[
+                                                          'completed_by_user_id'] =
+                                                      previousCompletedByUserId;
+                                                }
+                                                if (previousCompletedBy !=
+                                                    null) {
+                                                  toggledSubtask[
+                                                          'completed_by'] =
+                                                      previousCompletedBy;
+                                                }
+                                                if (previousCompletedAt !=
+                                                    null) {
+                                                  toggledSubtask[
+                                                          'completed_at'] =
+                                                      previousCompletedAt;
+                                                }
                                                 moveCompletedSubtasksToBottom(
                                                   subtasks,
                                                 );
                                               });
+                                              if (draftWasSynced) {
+                                                lastAppliedDraftSignature =
+                                                    previousDraftBaseline;
+                                              }
                                               ScaffoldMessenger.of(context)
                                                   .showSnackBar(
                                                 SnackBar(
@@ -820,10 +885,34 @@ Future<void> showAddTaskModal({
     );
   }
 
+  Timer? openTaskPollTimer;
+  var openTaskPollRunning = false;
+  Future<void> pollOpenSharedTask() async {
+    if (openTaskPollRunning || !context.mounted) return;
+    openTaskPollRunning = true;
+    try {
+      await OfflineRuntime.syncEngine?.synchronize(ignoreStopped: true);
+      if (!context.mounted) return;
+      await context.read<GlobalProvider>().refreshTasks(context, silent: true);
+    } catch (error) {
+      debugPrint('[OpenTaskSync] Не удалось обновить задачу: $error');
+    } finally {
+      openTaskPollRunning = false;
+    }
+  }
+
+  if (existingTask?.isShared == true) {
+    unawaited(pollOpenSharedTask());
+    openTaskPollTimer = Timer.periodic(
+      const Duration(seconds: 2),
+      (_) => unawaited(pollOpenSharedTask()),
+    );
+  }
+
   // The route's future completes before its closing animation is fully
   // removed from the overlay. Disposing these controllers here would leave
   // the still-mounted editor referring to already disposed objects.
-  return presentation;
+  return presentation.whenComplete(() => openTaskPollTimer?.cancel());
 }
 
 bool usesDesktopTaskWindow(BuildContext context) {

@@ -30,6 +30,9 @@ class TasksTable extends Table {
   TextColumn get note => text().nullable()();
   TextColumn get notificationTime => text().nullable()();
   BoolColumn get isCompleted => boolean().withDefault(const Constant(false))();
+  TextColumn get completedByUserId => text().nullable()();
+  TextColumn get completedByJson => text().nullable()();
+  DateTimeColumn get completedAt => dateTime().nullable()();
   BoolColumn get trashed => boolean().withDefault(const Constant(false))();
   TextColumn get urgency => text().nullable()();
   IntColumn get position => integer().nullable()();
@@ -104,7 +107,7 @@ class AppDb extends _$AppDb {
       : super(executor ?? driftDatabase(name: 'jospar.sqlite'));
 
   @override
-  int get schemaVersion => 3;
+  int get schemaVersion => 4;
 
   @override
   MigrationStrategy get migration => MigrationStrategy(
@@ -141,6 +144,14 @@ class AppDb extends _$AppDb {
             if (from >= 2) {
               await migrator.addColumn(outboxTable, outboxTable.accountId);
             }
+          }
+          if (from < 4) {
+            await migrator.addColumn(
+              tasksTable,
+              tasksTable.completedByUserId,
+            );
+            await migrator.addColumn(tasksTable, tasksTable.completedByJson);
+            await migrator.addColumn(tasksTable, tasksTable.completedAt);
           }
         },
       );

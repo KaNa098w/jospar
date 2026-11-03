@@ -6,7 +6,57 @@ import 'package:jospar/core/models/tasks_response.dart';
 import 'package:provider/provider.dart';
 
 void main() {
-  testWidgets('ordinary tasks have no background in dark theme',
+  testWidgets('larger checkbox target does not change task layout',
+      (tester) async {
+    var toggleCount = 0;
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => GlobalProvider(),
+        child: MaterialApp(
+          home: Scaffold(
+            body: Column(
+              crossAxisAlignment: CrossAxisAlignment.start,
+              children: [
+                TaskItem(
+                  key: const ValueKey('normal-task-item'),
+                  task: TaskItems(id: 'normal-target', name: 'Task'),
+                  colorHex: Colors.teal,
+                  onToggle: () {},
+                ),
+                TaskItem(
+                  key: const ValueKey('large-target-task-item'),
+                  task: TaskItems(id: 'tap-target', name: 'Task'),
+                  colorHex: Colors.teal,
+                  useLargeCheckboxTapTarget: true,
+                  onToggle: () => toggleCount++,
+                ),
+              ],
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final target = find.byKey(
+      const ValueKey('task-checkbox-hit-target-tap-target'),
+    );
+    final normalSize = tester.getSize(find.byKey(
+      const ValueKey('normal-task-item'),
+    ));
+    final largeTargetSize = tester.getSize(find.byKey(
+      const ValueKey('large-target-task-item'),
+    ));
+    expect(largeTargetSize.height, normalSize.height);
+    expect(tester.getSize(target), Size(48, largeTargetSize.height));
+
+    final topLeft = tester.getTopLeft(target);
+    await tester.tapAt(
+      topLeft + Offset(46, largeTargetSize.height - 2),
+    );
+    expect(toggleCount, 1);
+  });
+
+  testWidgets('urgent tasks keep their background in dark theme',
       (tester) async {
     await tester.pumpWidget(
       ChangeNotifierProvider(
@@ -20,6 +70,46 @@ void main() {
                 name: 'Dark task',
               ),
               urgency: 'high',
+              colorHex: Colors.teal,
+              onToggle: () {},
+            ),
+          ),
+        ),
+      ),
+    );
+
+    final taskContainer = tester
+        .widgetList<Container>(
+          find.descendant(
+            of: find.byType(TaskItem),
+            matching: find.byType(Container),
+          ),
+        )
+        .firstWhere(
+          (container) =>
+              container.padding ==
+              const EdgeInsets.symmetric(vertical: 6, horizontal: 6),
+        );
+
+    expect(
+      (taskContainer.decoration! as BoxDecoration).color,
+      const Color(0xFF421F25),
+    );
+  });
+
+  testWidgets('ordinary tasks have no background in dark theme',
+      (tester) async {
+    await tester.pumpWidget(
+      ChangeNotifierProvider(
+        create: (_) => GlobalProvider(),
+        child: MaterialApp(
+          theme: ThemeData.dark(),
+          home: Scaffold(
+            body: TaskItem(
+              task: TaskItems(
+                id: 'dark-ordinary-task',
+                name: 'Dark ordinary task',
+              ),
               colorHex: Colors.teal,
               onToggle: () {},
             ),

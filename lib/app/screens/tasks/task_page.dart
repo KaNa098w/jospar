@@ -49,10 +49,14 @@ class TasksPage extends StatefulWidget {
 
 class _TasksPageState extends State<TasksPage>
     with SingleTickerProviderStateMixin, WidgetsBindingObserver {
+  final GlobalKey _diaryTargetKey = GlobalKey();
+  final ValueNotifier<int> _diaryArrivals = ValueNotifier(0);
   final TaskService _taskService = TaskService();
   GlobalProvider? _globalProvider;
   bool _incomingShareScheduled = false;
   bool _handlingIncomingShare = false;
+  bool _widgetActionScheduled = false;
+  bool _handlingWidgetAction = false;
 
   late final SlidableController _drawerCtrl;
   late final Animation<double> _drawerAnim;
@@ -117,6 +121,7 @@ class _TasksPageState extends State<TasksPage>
     WidgetsBinding.instance.addPostFrameCallback((_) {
       if (!mounted) return;
       _inComingHashtoTask();
+      _scheduleWidgetAction();
     });
   }
 
@@ -130,6 +135,7 @@ class _TasksPageState extends State<TasksPage>
       provider.addListener(_onGlobalProviderChanged);
     }
     _scheduleIncomingShare();
+    _scheduleWidgetAction();
   }
 
   void _onGlobalProviderChanged() {
@@ -140,6 +146,7 @@ class _TasksPageState extends State<TasksPage>
       );
     }
     _scheduleIncomingShare();
+    _scheduleWidgetAction();
   }
 
   void _scheduleIncomingShare() {
@@ -156,6 +163,77 @@ class _TasksPageState extends State<TasksPage>
     });
   }
 
+  void _scheduleWidgetAction() {
+    if (!mounted ||
+        _handlingWidgetAction ||
+        _widgetActionScheduled ||
+        _globalProvider?.widgetLaunchRequest == null) {
+      return;
+    }
+    _widgetActionScheduled = true;
+    WidgetsBinding.instance.addPostFrameCallback((_) async {
+      _widgetActionScheduled = false;
+      if (mounted) await _handleWidgetAction();
+    });
+  }
+
+  Future<void> _handleWidgetAction() async {
+    if (_handlingWidgetAction || _handlingIncomingShare) return;
+    final request = context.read<GlobalProvider>().takeWidgetLaunchRequest();
+    if (request == null) return;
+    _handlingWidgetAction = true;
+    try {
+      if (request.completeTaskId != null) {
+        final id = request.completeTaskId!;
+        final global = context.read<GlobalProvider>();
+        final task =
+            global.allApiTasks.where((item) => item.id == id).firstOrNull;
+        if (task != null && task.isCompleted != true) {
+          await _taskService.setTaskCompleted(
+            context,
+            id: id,
+            isCompleted: true,
+          );
+          if (!mounted) return;
+          global.setTaskCompletedOptimistic(id, true);
+          await global.refreshTasks(context, silent: true);
+        }
+      } else if (request.taskId != null) {
+        var task = context
+            .read<GlobalProvider>()
+            .allApiTasks
+            .where((item) => item.id == request.taskId)
+            .firstOrNull;
+        if (task == null) {
+          await context.read<GlobalProvider>().refreshTasks(
+                context,
+                silent: true,
+              );
+          if (!mounted) return;
+          task = context
+              .read<GlobalProvider>()
+              .allApiTasks
+              .where((item) => item.id == request.taskId)
+              .firstOrNull;
+        }
+        if (task != null && mounted) {
+          await _openIncomingTask(task, linkTask: false);
+        }
+      } else if (mounted) {
+        final selected = request.addDate ?? DateTime.now();
+        setState(() {
+          _selectedDay = DateUtils.dateOnly(selected);
+          _focusedDay = DateUtils.dateOnly(selected);
+        });
+        await _addTask();
+      }
+    } finally {
+      _handlingWidgetAction = false;
+      _scheduleIncomingShare();
+      _scheduleWidgetAction();
+    }
+  }
+
   @override
   void dispose() {
     _globalProvider?.removeListener(_onGlobalProviderChanged);
@@ -164,6 +242,7 @@ class _TasksPageState extends State<TasksPage>
     _midnightTimer?.cancel();
     _stopAutoScroll();
     _sectionsScrollController.dispose();
+    _diaryArrivals.dispose();
     _drawerCtrl.dispose();
     super.dispose();
   }
@@ -341,10 +420,14 @@ class _TasksPageState extends State<TasksPage>
       _handlingIncomingShare = false;
       _setTaskEditorOpen(false);
       _scheduleIncomingShare();
+      _scheduleWidgetAction();
     }
   }
 
-  Future<void> _openIncomingTask(TaskItems task) async {
+  Future<void> _openIncomingTask(
+    TaskItems task, {
+    bool linkTask = true,
+  }) async {
     final id = task.id;
     if (!mounted || id == null || id.isEmpty) {
       throw StateError('В полученной задаче отсутствует ID');
@@ -354,7 +437,7 @@ class _TasksPageState extends State<TasksPage>
       context: context,
       selectedDay: DateTime.tryParse(task.date ?? '') ?? DateTime.now(),
       taskId: id,
-      linkTask: true,
+      linkTask: linkTask,
       existingTask: task,
       onSaveTask: (title, subtasks, date, taskListId, urgency) async {
         await _taskService.updateTaskPut(
@@ -672,6 +755,8 @@ class _TasksPageState extends State<TasksPage>
               tasksKey: key,
               items: items,
               bucketBaseDate: _selectedDay,
+              diaryTargetKey: _diaryTargetKey,
+              diaryArrivals: _diaryArrivals,
               highlightedTaskId: _newTaskHighlightId,
               initiallyExpanded: key != kBucketNote,
               showTaskCount: key == kBucketToday,
@@ -756,18 +841,12 @@ class _TasksPageState extends State<TasksPage>
     final activeMainTasks = allApiTasks
         .where((task) => task.isCompleted != true)
         .toList(growable: false);
-    final today = DateUtils.dateOnly(DateTime.now());
-    final tasksScheduledToday = allApiTasks.where((task) {
-      final taskDate = parseLocal(task.date);
-      return taskDate != null && DateUtils.isSameDay(taskDate, today);
-    }).toList(growable: false);
-    final todayTasksCount = tasksScheduledToday.length;
-    final completedTodayTasksCount =
-        tasksScheduledToday.where((task) => task.isCompleted == true).length;
     final groups = bucketing.groupByBuckets(activeMainTasks, _selectedDay);
     final todaySection = groups[kBucketToday] ?? const <TaskItems>[];
     final completedToday =
         bucketing.completedOnDay(allApiTasks, DateTime.now());
+    final completedTodayTasksCount = completedToday.length;
+    final todayTasksCount = todaySection.length + completedTodayTasksCount;
     final mergedForTodayView = isTodaySelected
         ? _mergeUniqueTasks(
             _mergeUniqueTasks(dayTasks, todaySection),

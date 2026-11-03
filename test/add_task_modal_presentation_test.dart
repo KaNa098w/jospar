@@ -11,7 +11,7 @@ import 'package:jospar/core/models/tasks_response.dart';
 import 'package:provider/provider.dart';
 
 void main() {
-  Future<void> pumpHost(
+  Future<GlobalProvider> pumpHost(
     WidgetTester tester, {
     Future<String?> Function(String, List, DateTime?, String, String)? onSave,
     TaskItems? existingTask,
@@ -51,6 +51,7 @@ void main() {
         ),
       ),
     );
+    return provider;
   }
 
   testWidgets('uses a centered dialog on desktop', (tester) async {
@@ -170,6 +171,82 @@ void main() {
       await tester.pumpAndSettle();
 
       expect(savedDate, isNull);
+    } finally {
+      debugDefaultTargetPlatformOverride = null;
+    }
+  });
+
+  testWidgets('realtime completion is not saved again by the current user',
+      (tester) async {
+    debugDefaultTargetPlatformOverride = TargetPlatform.macOS;
+    var saveCount = 0;
+    final existingTask = TaskItems(
+      id: 'task-1',
+      name: 'Общая задача',
+      date: '2026-08-25',
+      taskListId: 'list-1',
+      children: [
+        TaskItems(
+          id: 'child-1',
+          name: 'Подзадача',
+          isCompleted: false,
+        ),
+      ],
+    );
+    try {
+      final provider = await pumpHost(
+        tester,
+        existingTask: existingTask,
+        onSave: (_, __, ___, ____, _____) async {
+          saveCount++;
+          return 'task-1';
+        },
+      );
+
+      await tester.tap(find.text('Открыть'));
+      await tester.pumpAndSettle();
+
+      await provider.setApiTasks([
+        TaskItems(
+          id: 'task-1',
+          name: 'Общая задача',
+          date: '2026-08-25',
+          taskListId: 'list-1',
+          children: [
+            TaskItems(
+              id: 'child-1',
+              name: 'Подзадача',
+              isCompleted: true,
+              completedByUserId: 'other-user',
+              completedBy: const {
+                'id': 'other-user',
+                'name': 'Другой участник',
+              },
+            ),
+          ],
+        ),
+      ]);
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Другой участник'), findsOneWidget);
+      expect(
+        existingTask.children?.single.completedByUserId,
+        'other-user',
+      );
+
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+
+      expect(saveCount, 0);
+      expect(find.byType(Dialog), findsNothing);
+
+      await tester.tap(find.text('Открыть'));
+      await tester.pumpAndSettle();
+
+      expect(find.byTooltip('Другой участник'), findsOneWidget);
+      await tester.tap(find.byIcon(Icons.close));
+      await tester.pumpAndSettle();
+      expect(saveCount, 0);
     } finally {
       debugDefaultTargetPlatformOverride = null;
     }

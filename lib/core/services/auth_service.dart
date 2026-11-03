@@ -6,11 +6,19 @@ import 'package:jospar/core/services/auth_interceptor.dart';
 import 'package:jospar/core/services/auth_storage.dart';
 
 class AuthException implements Exception {
-  const AuthException(this.code, this.message, {this.statusCode});
+  const AuthException(
+    this.code,
+    this.message, {
+    this.statusCode,
+    this.details = const {},
+    this.retryAfter,
+  });
 
   final String code;
   final String message;
   final int? statusCode;
+  final Map<String, List<String>> details;
+  final Duration? retryAfter;
 
   @override
   String toString() => message;
@@ -36,6 +44,69 @@ class AuthService {
 
   final Dio _dio;
   final AuthStorage _storage;
+
+  Future<AuthResponse> login({
+    required String email,
+    required String password,
+    String? deviceId,
+  }) =>
+      _authenticate(
+        path: '/v1/auth/login',
+        data: {
+          'email': email,
+          'password': password,
+          if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
+        },
+      );
+
+  Future<AuthResponse> register({
+    required String email,
+    required String password,
+    required String passwordConfirmation,
+    String? firstName,
+    String? lastName,
+    String? deviceId,
+  }) =>
+      _authenticate(
+        path: '/v1/auth/register',
+        data: {
+          'email': email,
+          'password': password,
+          'password_confirmation': passwordConfirmation,
+          if (firstName != null && firstName.isNotEmpty)
+            'first_name': firstName,
+          if (lastName != null && lastName.isNotEmpty) 'last_name': lastName,
+          if (deviceId != null && deviceId.isNotEmpty) 'device_id': deviceId,
+        },
+      );
+
+  Future<AuthResponse> _authenticate({
+    required String path,
+    required Map<String, dynamic> data,
+  }) async {
+    try {
+      final response = await _dio.post<Map<String, dynamic>>(path, data: data);
+      final body = response.data;
+      if (body == null) {
+        throw const AuthException(
+          'invalid_response',
+          'Сервер вернул пустой ответ.',
+        );
+      }
+      final result = AuthResponse.fromJson(body);
+      final token = result.token;
+      if (token == null || token.isEmpty) {
+        throw const AuthException(
+          'invalid_response',
+          'Сервер не вернул токен авторизации.',
+        );
+      }
+      await _storage.setToken(token);
+      return result;
+    } on DioException catch (error) {
+      throw _mapDioError(error);
+    }
+  }
 
   Future<AuthResponse> socialLogin({
     required String provider,
@@ -143,10 +214,27 @@ class AuthService {
     final error = data is Map ? data['error'] : null;
     final code = error is Map ? error['code']?.toString() : null;
     final message = error is Map ? error['message']?.toString() : null;
+    final rawDetails = error is Map ? error['details'] : null;
+    final details = <String, List<String>>{};
+    if (rawDetails is Map) {
+      for (final entry in rawDetails.entries) {
+        final value = entry.value;
+        details[entry.key.toString()] = value is List
+            ? value.map((item) => item.toString()).toList()
+            : <String>[value.toString()];
+      }
+    }
+    final retryAfterSeconds = int.tryParse(
+      exception.response?.headers.value('retry-after') ?? '',
+    );
     return AuthException(
       code ?? 'network_error',
       message ?? fallbackMessage,
       statusCode: exception.response?.statusCode,
+      details: details,
+      retryAfter: exception.response?.statusCode == 429
+          ? Duration(seconds: retryAfterSeconds ?? 30)
+          : null,
     );
   }
 

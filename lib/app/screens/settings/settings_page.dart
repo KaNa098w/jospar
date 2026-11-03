@@ -6,6 +6,7 @@ import 'package:jospar/app/screens/settings/settings_pages/theme_page.dart';
 import 'package:jospar/app/utils/custom_appbar.dart';
 import 'package:jospar/app/utils/theme.dart';
 import 'package:jospar/core/l10n/s.dart';
+import 'package:jospar/core/services/developer_mode_service.dart';
 import 'package:package_info_plus/package_info_plus.dart';
 
 class SettingsPage extends StatefulWidget {
@@ -17,6 +18,28 @@ class SettingsPage extends StatefulWidget {
 
 class _SettingsPageState extends State<SettingsPage> {
   late final Future<PackageInfo> _packageInfo = PackageInfo.fromPlatform();
+  int _versionTapCount = 0;
+
+  @override
+  void initState() {
+    super.initState();
+    DeveloperModeService.load();
+  }
+
+  Future<void> _handleVersionTap() async {
+    if (DeveloperModeService.enabled.value) return;
+    _versionTapCount += 1;
+    if (_versionTapCount < 10) return;
+
+    _versionTapCount = 0;
+    await DeveloperModeService.enable();
+    if (!mounted) return;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(content: Text(S.of(context).developerModeEnabled)),
+      );
+  }
 
   @override
   Widget build(BuildContext context) {
@@ -33,7 +56,7 @@ class _SettingsPageState extends State<SettingsPage> {
                   children: [
                     _SettingsTile(
                       icon: Icons.language,
-                      text: "Язык",
+                      text: S.of(context).language,
                       onTap: () {
                         Navigator.of(context).push(MaterialPageRoute(
                             builder: (_) => const LanguagePage()));
@@ -41,7 +64,7 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     _SettingsTile(
                       icon: Icons.color_lens_outlined,
-                      text: "Тема",
+                      text: S.of(context).settingsTheme,
                       onTap: () {
                         Navigator.of(context).push(MaterialPageRoute(
                             builder: (_) => const ThemePage()));
@@ -49,12 +72,12 @@ class _SettingsPageState extends State<SettingsPage> {
                     ),
                     _SettingsTile(
                       icon: Icons.notifications_outlined,
-                      text: "Уведомления",
+                      text: S.of(context).settingsNotifications,
                       onTap: () => AppSettings.openAppSettings(),
                     ),
                     _SettingsTile(
                       icon: Icons.privacy_tip_outlined,
-                      text: "Политика конфиденциальности",
+                      text: S.of(context).settingsPrivacyPolicy,
                       onTap: () {
                         Navigator.of(context).push(MaterialPageRoute(
                             builder: (_) => const PoliticScreen()));
@@ -71,16 +94,26 @@ class _SettingsPageState extends State<SettingsPage> {
               final info = snapshot.data;
               return Padding(
                 padding: const EdgeInsets.fromLTRB(16, 8, 16, 20),
-                child: Text(
-                  info == null
-                      ? 'Версия'
-                      : 'Версия ${info.version}  •  '
-                          'Сборка ${info.buildNumber}',
-                  key: const ValueKey('settings-app-version'),
-                  textAlign: TextAlign.center,
-                  style: TextStyle(
-                    color: Colors.grey.shade500,
-                    fontSize: 12,
+                child: GestureDetector(
+                  behavior: HitTestBehavior.opaque,
+                  onTap: _handleVersionTap,
+                  child: Padding(
+                    padding: const EdgeInsets.symmetric(
+                      horizontal: 24,
+                      vertical: 8,
+                    ),
+                    child: Text(
+                      info == null
+                          ? S.of(context).settingsVersion
+                          : '${S.of(context).settingsVersion} ${info.version}  •  '
+                              '${S.of(context).settingsBuild} ${info.buildNumber}',
+                      key: const ValueKey('settings-app-version'),
+                      textAlign: TextAlign.center,
+                      style: TextStyle(
+                        color: Colors.grey.shade500,
+                        fontSize: 12,
+                      ),
+                    ),
                   ),
                 ),
               );

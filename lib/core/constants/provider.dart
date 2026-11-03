@@ -14,6 +14,14 @@ import 'package:jospar/core/services/social_auth_service.dart';
 import 'package:jospar/core/services/share_delivery_mode.dart';
 import 'package:jospar/core/services/auth_service.dart';
 
+class WidgetLaunchRequest {
+  const WidgetLaunchRequest({this.taskId, this.completeTaskId, this.addDate});
+
+  final String? taskId;
+  final String? completeTaskId;
+  final DateTime? addDate;
+}
+
 class GlobalProvider extends ChangeNotifier {
   /// Rebuilds consumers after background sync changed the local database.
   void notifyLocalDataChanged() => notifyListeners();
@@ -41,6 +49,8 @@ class GlobalProvider extends ChangeNotifier {
   String? get inComingHash => _inComingHash;
   ShareDeliveryMode _incomingShareMode = ShareDeliveryMode.collaborate;
   ShareDeliveryMode get incomingShareMode => _incomingShareMode;
+  WidgetLaunchRequest? _widgetLaunchRequest;
+  WidgetLaunchRequest? get widgetLaunchRequest => _widgetLaunchRequest;
 
   void setInComingHash(
     String? hash, {
@@ -49,6 +59,18 @@ class GlobalProvider extends ChangeNotifier {
     _inComingHash = hash;
     _incomingShareMode = mode;
     notifyListeners();
+  }
+
+  void setWidgetLaunchRequest(WidgetLaunchRequest request) {
+    _widgetLaunchRequest = request;
+    notifyListeners();
+  }
+
+  WidgetLaunchRequest? takeWidgetLaunchRequest() {
+    final request = _widgetLaunchRequest;
+    _widgetLaunchRequest = null;
+    if (request != null) notifyListeners();
+    return request;
   }
 
   bool _isDeviceRegistered = false; // <-- флаг разовой регистрации
@@ -382,6 +404,7 @@ class GlobalProvider extends ChangeNotifier {
     _taskLists = [];
     _tasksByList = {};
     _allTasks = [];
+    _widgetLaunchRequest = null;
     notifyListeners();
   }
 
@@ -398,6 +421,8 @@ class GlobalProvider extends ChangeNotifier {
     await prefs.remove('firstName');
     await prefs.remove('lastName');
     await prefs.remove('phoneNumber');
+    await prefs.remove('email');
+    await prefs.remove('avatarUrl');
 
     _authResponse = null;
     _selectedAddressName = null;
@@ -408,6 +433,7 @@ class GlobalProvider extends ChangeNotifier {
     _taskLists = [];
     _tasksByList = {};
     _allTasks = [];
+    _widgetLaunchRequest = null;
 
     // очищаем и девайс
     _isDeviceRegistered = false;

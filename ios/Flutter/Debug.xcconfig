@@ -1,2 +1,6 @@
 #include? "Pods/Target Support Files/Pods-Runner/Pods-Runner.debug.xcconfig"
 #include "Generated.xcconfig"
+
+// Xcode 27 reports both simulator architectures to Flutter's unpack script as
+// one value. This development machine is Apple Silicon, so build arm64 only.
+ARCHS[sdk=iphonesimulator*] = arm64

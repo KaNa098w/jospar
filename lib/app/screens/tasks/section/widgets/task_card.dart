@@ -59,6 +59,7 @@ class TaskCard extends StatelessWidget {
                 task: task,
                 completedColor: color,
                 keepCompletedTaskActiveStyle: true,
+                useLargeCheckboxTapTarget: true,
                 trailingText: trailingText,
                 onToggle: onToggle,
               ),

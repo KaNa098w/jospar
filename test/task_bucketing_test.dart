@@ -54,4 +54,25 @@ void main() {
     expect(showDateInLater(DateTime(2026, 11, 3), base), isFalse);
     expect(showDateInLater(DateTime(2027, 8, 2), base), isFalse);
   });
+
+  test('puts a newly created task first inside its section', () {
+    final tasks = [
+      TaskItems(
+        id: 'older',
+        date: '2026-08-04',
+        position: 0,
+        createdAt: '2026-08-01T10:00:00Z',
+      ),
+      TaskItems(
+        id: 'newer',
+        date: '2026-08-08',
+        position: 0,
+        createdAt: '2026-08-02T10:00:00Z',
+      ),
+    ];
+
+    final grouped = groupByBuckets(tasks, base);
+
+    expect(grouped[kBucketWeek]!.map((task) => task.id), ['newer', 'older']);
+  });
 }

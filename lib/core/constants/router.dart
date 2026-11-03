@@ -48,6 +48,11 @@ class AppRouter {
         builder: (ctx, state) => const AuthPage(),
       ),
       GoRoute(
+        path: '/auth/email',
+        name: 'email-auth',
+        builder: (ctx, state) => const AuthPage(emailMode: true),
+      ),
+      GoRoute(
         path: '/settings',
         name: 'settings',
         builder: (ctx, state) => const SettingsPage(),

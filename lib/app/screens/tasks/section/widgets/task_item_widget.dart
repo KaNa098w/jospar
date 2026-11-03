@@ -11,6 +11,7 @@ class TaskItem extends StatelessWidget {
   final String? urgency;
   final Color? completedColor;
   final bool keepCompletedTaskActiveStyle;
+  final bool useLargeCheckboxTapTarget;
   final String? trailingText;
 
   const TaskItem({
@@ -21,6 +22,7 @@ class TaskItem extends StatelessWidget {
     this.urgency,
     this.completedColor,
     this.keepCompletedTaskActiveStyle = false,
+    this.useLargeCheckboxTapTarget = false,
     this.trailingText,
   });
 
@@ -55,56 +57,58 @@ class TaskItem extends StatelessWidget {
     // the collaboration background only when an avatar is actually visible.
     final hasVisibleParticipantAvatar = participants.isNotEmpty;
 
-    return Container(
+    final checkbox = Transform.translate(
+      offset: const Offset(0, 2),
+      child: SizedBox(
+        width: 35,
+        height: 20,
+        child: Align(
+          alignment: Alignment.centerLeft,
+          child: Container(
+            height: 20,
+            width: 20,
+            decoration: BoxDecoration(
+              color: isCompleted ? resolvedCompletedColor : Colors.transparent,
+              border: Border.all(
+                color: isCompleted ? resolvedCompletedColor : colorHex,
+                width: 1.5,
+              ),
+              borderRadius: BorderRadius.circular(6),
+            ),
+            child: isCompleted
+                ? const Icon(Icons.check, size: 16, color: Colors.white)
+                : null,
+          ),
+        ),
+      ),
+    );
+
+    final content = Container(
       padding: const EdgeInsets.symmetric(
           vertical: 6.0,
           horizontal: 6.0), // Добавлен и горизонтальный отступ для симметрии
       decoration: BoxDecoration(
         color: hasVisibleParticipantAvatar
             ? (isDark ? const Color(0xFF19324B) : const Color(0xFFD9EAFC))
-            : isDark
-                ? Colors.transparent
-                : urgencyBackground ??
-                    (useCompletedVisuals
+            : urgencyBackground ??
+                (isDark
+                    ? Colors.transparent
+                    : useCompletedVisuals
                         ? const Color(0xFFF3F4F6)
                         : colors.surface),
         borderRadius: BorderRadius.circular(8),
       ),
-      // Убрали constraints, т.к. высота будет определяться паддингом
       child: Row(
         crossAxisAlignment: CrossAxisAlignment.start,
         children: [
-          Transform.translate(
-            offset: const Offset(0, 2),
-            child: GestureDetector(
+          if (useLargeCheckboxTapTarget)
+            checkbox
+          else
+            GestureDetector(
               behavior: HitTestBehavior.opaque,
               onTap: onToggle,
-              child: SizedBox(
-                width: 35,
-                height: 20,
-                child: Align(
-                  alignment: Alignment.centerLeft,
-                  child: Container(
-                    height: 20,
-                    width: 20,
-                    decoration: BoxDecoration(
-                      color: isCompleted
-                          ? resolvedCompletedColor
-                          : Colors.transparent,
-                      border: Border.all(
-                        color: isCompleted ? resolvedCompletedColor : colorHex,
-                        width: 1.5,
-                      ),
-                      borderRadius: BorderRadius.circular(6),
-                    ),
-                    child: isCompleted
-                        ? const Icon(Icons.check, size: 16, color: Colors.white)
-                        : null,
-                  ),
-                ),
-              ),
+              child: checkbox,
             ),
-          ),
           Expanded(
             child: Row(
               crossAxisAlignment: CrossAxisAlignment.start,
@@ -172,6 +176,25 @@ class TaskItem extends StatelessWidget {
           ),
         ],
       ),
+    );
+
+    if (!useLargeCheckboxTapTarget) return content;
+
+    return Stack(
+      children: [
+        content,
+        PositionedDirectional(
+          start: 0,
+          top: 0,
+          bottom: 0,
+          width: 48,
+          child: GestureDetector(
+            key: ValueKey('task-checkbox-hit-target-${task.id ?? task.name}'),
+            behavior: HitTestBehavior.opaque,
+            onTap: onToggle,
+          ),
+        ),
+      ],
     );
   }
 }
@@ -319,9 +342,8 @@ Color _participantColor(String seed) {
 // фон
 // фон
 Color? _urgencyBg(BuildContext context, String? u, bool isCompleted) {
-  final colors = Theme.of(context).colorScheme;
   final isDark = Theme.of(context).brightness == Brightness.dark;
-  if (isCompleted || u == null) return colors.surface;
+  if (isCompleted || u == null) return null;
 
   switch (u.toLowerCase()) {
     case 'low':
@@ -332,7 +354,7 @@ Color? _urgencyBg(BuildContext context, String? u, bool isCompleted) {
     case 'hight':
       return isDark ? const Color(0xFF421F25) : Colors.red.shade100;
   }
-  return colors.surface;
+  return null;
 }
 
 // бордер

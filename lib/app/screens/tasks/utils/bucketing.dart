@@ -44,7 +44,7 @@ String bucketFor(DateTime? taskDate, DateTime base) {
 }
 
 /// Группируем задачи по корзинам и аккуратно сортируем в каждой группе.
-/// Сортировка: незавершённые → ручная позиция → дата → updatedAt.
+/// Сортировка: незавершённые → ручная позиция → новые → дата.
 Map<String, List<TaskItems>> groupByBuckets(
   List<TaskItems> items,
   DateTime base,
@@ -80,14 +80,17 @@ Map<String, List<TaskItems>> groupByBuckets(
       final p2 = b.position ?? 0;
       if (p1 != p2) return p1.compareTo(p2);
 
+      // Новая задача с начальной позицией должна быть первой в разделе,
+      // даже если её дата позже даты уже существующей задачи.
+      final recent = (b.createdAt ?? b.updatedAt ?? '')
+          .compareTo(a.createdAt ?? a.updatedAt ?? '');
+      if (recent != 0) return recent;
+
       if (k != kBucketNote) {
         final c1 = safeCompareDates(a.date, b.date);
         if (c1 != 0) return c1;
       }
-
-      // При одинаковой позиции новая задача должна появляться первой.
-      return (b.updatedAt ?? b.createdAt ?? '')
-          .compareTo(a.updatedAt ?? a.createdAt ?? '');
+      return 0;
     });
   }
 

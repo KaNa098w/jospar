@@ -9,6 +9,21 @@ class SRu extends S {
   SRu([String locale = 'ru']) : super(locale);
 
   @override
+  String get settingsTheme => 'Тема';
+
+  @override
+  String get settingsNotifications => 'Уведомления';
+
+  @override
+  String get settingsPrivacyPolicy => 'Политика конфиденциальности';
+
+  @override
+  String get settingsVersion => 'Версия';
+
+  @override
+  String get settingsBuild => 'Сборка';
+
+  @override
   String get today => 'Сегодня';
 
   @override
@@ -246,6 +261,9 @@ class SRu extends S {
   String get sharedTasks => 'Совместные задачи';
 
   @override
+  String get developerModeEnabled => 'Вы стали разработчиком';
+
+  @override
   String get sharedProgress => 'Общий прогресс';
 
   @override
@@ -447,6 +465,42 @@ class SRu extends S {
   String syncRetries(Object count) {
     return 'Попыток: $count';
   }
+
+  @override
+  String get fallbackSyncEnabled => 'Резервная синхронизация включена';
+
+  @override
+  String get websocketOnlyMode =>
+      'Только WebSocket: периодическая синхронизация выключена';
+
+  @override
+  String get enableFastSync => 'Включить синхронизацию каждые 2 секунды';
+
+  @override
+  String get fastSyncEnabled =>
+      'Быстрая синхронизация включена: каждые 2 секунды';
+
+  @override
+  String get defaultSyncEnabled =>
+      'Стандартная синхронизация включена: каждые 30 секунд';
+
+  @override
+  String get realtimeConsole => 'Консоль WebSocket';
+
+  @override
+  String get websocketConnected => 'WS подключён';
+
+  @override
+  String get websocketDisconnected => 'WS отключён';
+
+  @override
+  String get channelSubscribed => 'Канал подписан';
+
+  @override
+  String get channelNotSubscribed => 'Нет подписки';
+
+  @override
+  String get realtimeHistoryEmpty => 'Событий пока нет';
 
   @override
   String get subtaskDeleted => 'Подзадача удалена';

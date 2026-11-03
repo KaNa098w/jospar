@@ -9,6 +9,21 @@ class SEn extends S {
   SEn([String locale = 'en']) : super(locale);
 
   @override
+  String get settingsTheme => 'Theme';
+
+  @override
+  String get settingsNotifications => 'Notifications';
+
+  @override
+  String get settingsPrivacyPolicy => 'Privacy policy';
+
+  @override
+  String get settingsVersion => 'Version';
+
+  @override
+  String get settingsBuild => 'Build';
+
+  @override
   String get today => 'Today';
 
   @override
@@ -246,6 +261,9 @@ class SEn extends S {
   String get sharedTasks => 'Shared tasks';
 
   @override
+  String get developerModeEnabled => 'You are now a developer';
+
+  @override
   String get sharedProgress => 'Shared progress';
 
   @override
@@ -447,6 +465,41 @@ class SEn extends S {
   String syncRetries(Object count) {
     return 'Attempts: $count';
   }
+
+  @override
+  String get fallbackSyncEnabled => 'Fallback synchronization is enabled';
+
+  @override
+  String get websocketOnlyMode =>
+      'WebSocket only: periodic synchronization is disabled';
+
+  @override
+  String get enableFastSync => 'Enable synchronization every 2 seconds';
+
+  @override
+  String get fastSyncEnabled => 'Fast synchronization enabled: every 2 seconds';
+
+  @override
+  String get defaultSyncEnabled =>
+      'Default synchronization enabled: every 30 seconds';
+
+  @override
+  String get realtimeConsole => 'WebSocket console';
+
+  @override
+  String get websocketConnected => 'WS connected';
+
+  @override
+  String get websocketDisconnected => 'WS disconnected';
+
+  @override
+  String get channelSubscribed => 'Channel subscribed';
+
+  @override
+  String get channelNotSubscribed => 'Not subscribed';
+
+  @override
+  String get realtimeHistoryEmpty => 'No events yet';
 
   @override
   String get subtaskDeleted => 'Subtask deleted';

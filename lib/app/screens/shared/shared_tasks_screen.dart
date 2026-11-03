@@ -8,6 +8,8 @@ import 'package:jospar/core/constants/provider.dart';
 import 'package:provider/provider.dart';
 import 'package:jospar/app/screens/shared/collaborators_sheet.dart';
 import 'package:jospar/core/services/offline/offline_runtime.dart';
+import 'package:jospar/core/services/offline/realtime_sync.dart';
+import 'package:jospar/core/services/offline/sync_engine.dart';
 import 'package:jospar/app/utils/theme.dart';
 import 'package:jospar/core/l10n/s.dart';
 
@@ -137,95 +139,99 @@ class _SharedTaskCard extends StatelessWidget {
       ),
       child: ClipRRect(
         borderRadius: BorderRadius.circular(20),
-        child: Theme(
-          data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
-          child: ExpansionTile(
-            tilePadding: const EdgeInsets.fromLTRB(14, 7, 14, 7),
-            childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
-            leading: _AnimatedCheck(
-              checked: completed,
-              enabled: canEdit,
-              onTap: onToggle,
-            ),
-            title: AnimatedDefaultTextStyle(
-              duration: const Duration(milliseconds: 220),
-              style: TextStyle(
-                color: completed
-                    ? const Color(0xFF718078)
-                    : const Color(0xFF1D2735),
-                fontSize: 16,
-                fontWeight: FontWeight.w700,
-                decoration: completed
-                    ? TextDecoration.lineThrough
-                    : TextDecoration.none,
+        child: Material(
+          type: MaterialType.transparency,
+          child: Theme(
+            data: Theme.of(context).copyWith(dividerColor: Colors.transparent),
+            child: ExpansionTile(
+              tilePadding: const EdgeInsets.fromLTRB(14, 7, 14, 7),
+              childrenPadding: const EdgeInsets.fromLTRB(14, 0, 14, 12),
+              leading: _AnimatedCheck(
+                checked: completed,
+                enabled: canEdit,
+                onTap: onToggle,
               ),
-              child: Text(task.name ?? S.of(context).untitled),
-            ),
-            subtitle: Padding(
-              padding: const EdgeInsets.only(top: 8),
-              child: Column(
-                crossAxisAlignment: CrossAxisAlignment.start,
-                children: [
-                  Row(
-                    children: [
-                      _RoleChip(role: task.collaborationRole),
-                      const SizedBox(width: 8),
-                      _ParticipantStack(items: task.collaborators ?? const []),
-                    ],
-                  ),
-                  if (subtasks.isNotEmpty) ...[
-                    const SizedBox(height: 10),
-                    TweenAnimationBuilder<double>(
-                      tween: Tween(end: progress),
-                      duration: const Duration(milliseconds: 450),
-                      curve: Curves.easeOut,
-                      builder: (_, value, __) => ClipRRect(
-                        borderRadius: BorderRadius.circular(10),
-                        child: LinearProgressIndicator(
-                          value: value,
-                          minHeight: 5,
-                          backgroundColor: const Color(0xFFE9EDF3),
-                          color: const Color(0xFF34C759),
+              title: AnimatedDefaultTextStyle(
+                duration: const Duration(milliseconds: 220),
+                style: TextStyle(
+                  color: completed
+                      ? const Color(0xFF718078)
+                      : const Color(0xFF1D2735),
+                  fontSize: 16,
+                  fontWeight: FontWeight.w700,
+                  decoration: completed
+                      ? TextDecoration.lineThrough
+                      : TextDecoration.none,
+                ),
+                child: Text(task.name ?? S.of(context).untitled),
+              ),
+              subtitle: Padding(
+                padding: const EdgeInsets.only(top: 8),
+                child: Column(
+                  crossAxisAlignment: CrossAxisAlignment.start,
+                  children: [
+                    Row(
+                      children: [
+                        _RoleChip(role: task.collaborationRole),
+                        const SizedBox(width: 8),
+                        _ParticipantStack(
+                            items: task.collaborators ?? const []),
+                      ],
+                    ),
+                    if (subtasks.isNotEmpty) ...[
+                      const SizedBox(height: 10),
+                      TweenAnimationBuilder<double>(
+                        tween: Tween(end: progress),
+                        duration: const Duration(milliseconds: 450),
+                        curve: Curves.easeOut,
+                        builder: (_, value, __) => ClipRRect(
+                          borderRadius: BorderRadius.circular(10),
+                          child: LinearProgressIndicator(
+                            value: value,
+                            minHeight: 5,
+                            backgroundColor: const Color(0xFFE9EDF3),
+                            color: const Color(0xFF34C759),
+                          ),
                         ),
                       ),
-                    ),
-                    const SizedBox(height: 5),
-                    Text(
-                      S.of(context).subtasksProgress(done, subtasks.length),
-                      style: const TextStyle(
-                        color: Color(0xFF8A94A3),
-                        fontSize: 12,
+                      const SizedBox(height: 5),
+                      Text(
+                        S.of(context).subtasksProgress(done, subtasks.length),
+                        style: const TextStyle(
+                          color: Color(0xFF8A94A3),
+                          fontSize: 12,
+                        ),
                       ),
-                    ),
+                    ],
                   ],
-                ],
-              ),
-            ),
-            children: [
-              for (final subtask in subtasks)
-                _SubtaskRow(
-                  task: subtask,
-                  enabled: canEdit,
-                  onTap: () => onToggleSubtask(task, subtask),
                 ),
-              const SizedBox(height: 4),
-              Row(
-                mainAxisAlignment: MainAxisAlignment.end,
-                children: [
-                  TextButton.icon(
-                    onPressed: onParticipants,
-                    icon: const Icon(Icons.group_outlined, size: 20),
-                    label: Text(S.of(context).participants),
-                  ),
-                  if (canEdit)
-                    IconButton(
-                      tooltip: S.of(context).edit,
-                      onPressed: onEdit,
-                      icon: const Icon(Icons.edit_outlined),
-                    ),
-                ],
               ),
-            ],
+              children: [
+                for (final subtask in subtasks)
+                  _SubtaskRow(
+                    task: subtask,
+                    enabled: canEdit,
+                    onTap: () => onToggleSubtask(task, subtask),
+                  ),
+                const SizedBox(height: 4),
+                Row(
+                  mainAxisAlignment: MainAxisAlignment.end,
+                  children: [
+                    TextButton.icon(
+                      onPressed: onParticipants,
+                      icon: const Icon(Icons.group_outlined, size: 20),
+                      label: Text(S.of(context).participants),
+                    ),
+                    if (canEdit)
+                      IconButton(
+                        tooltip: S.of(context).edit,
+                        onPressed: onEdit,
+                        icon: const Icon(Icons.edit_outlined),
+                      ),
+                  ],
+                ),
+              ],
+            ),
           ),
         ),
       ),
@@ -526,6 +532,286 @@ Color _sharedParticipantColor(String seed) {
   return colors[hash.abs() % colors.length];
 }
 
+class _RealtimeConsoleLine {
+  const _RealtimeConsoleLine({
+    required this.timestamp,
+    required this.source,
+    required this.message,
+    required this.isError,
+    required this.isSuccess,
+  });
+
+  final DateTime timestamp;
+  final String source;
+  final String message;
+  final bool isError;
+  final bool isSuccess;
+}
+
+class _RealtimeConsole extends StatelessWidget {
+  const _RealtimeConsole({
+    required this.connected,
+    required this.subscribed,
+    required this.fastSyncEnabled,
+    required this.syncRunning,
+    required this.expanded,
+    required this.lines,
+    required this.onToggleExpanded,
+  });
+
+  final bool connected;
+  final bool subscribed;
+  final bool fastSyncEnabled;
+  final bool syncRunning;
+  final bool expanded;
+  final List<_RealtimeConsoleLine> lines;
+  final VoidCallback onToggleExpanded;
+
+  @override
+  Widget build(BuildContext context) {
+    const background = Color(0xFF111820);
+    const border = Color(0xFF2A3744);
+    final live = connected && subscribed;
+    final statusColor = live
+        ? const Color(0xFF4DD58A)
+        : connected
+            ? const Color(0xFFFFC857)
+            : const Color(0xFFFF6B6B);
+
+    return Container(
+      key: const ValueKey('shared-realtime-console'),
+      margin: const EdgeInsets.only(bottom: 14),
+      decoration: BoxDecoration(
+        color: background,
+        borderRadius: BorderRadius.circular(16),
+        border: Border.all(color: border),
+        boxShadow: const [
+          BoxShadow(
+            color: Color(0x1A000000),
+            blurRadius: 14,
+            offset: Offset(0, 6),
+          ),
+        ],
+      ),
+      child: ClipRRect(
+        borderRadius: BorderRadius.circular(16),
+        child: Material(
+          type: MaterialType.transparency,
+          child: Column(
+            crossAxisAlignment: CrossAxisAlignment.stretch,
+            children: [
+              InkWell(
+                onTap: onToggleExpanded,
+                child: Padding(
+                  padding: const EdgeInsets.fromLTRB(14, 12, 10, 10),
+                  child: Row(
+                    children: [
+                      Container(
+                        width: 9,
+                        height: 9,
+                        decoration: BoxDecoration(
+                          color: statusColor,
+                          shape: BoxShape.circle,
+                          boxShadow: [
+                            BoxShadow(
+                              color: statusColor.withValues(alpha: .45),
+                              blurRadius: 8,
+                            ),
+                          ],
+                        ),
+                      ),
+                      const SizedBox(width: 9),
+                      Expanded(
+                        child: Text(
+                          S.of(context).realtimeConsole,
+                          style: const TextStyle(
+                            color: Colors.white,
+                            fontSize: 15,
+                            fontWeight: FontWeight.w700,
+                          ),
+                        ),
+                      ),
+                      if (syncRunning)
+                        const Padding(
+                          padding: EdgeInsets.only(right: 8),
+                          child: SizedBox(
+                            width: 14,
+                            height: 14,
+                            child: CircularProgressIndicator(
+                              strokeWidth: 1.8,
+                              color: Color(0xFF67B7FF),
+                            ),
+                          ),
+                        ),
+                      Icon(
+                        expanded
+                            ? Icons.keyboard_arrow_up_rounded
+                            : Icons.keyboard_arrow_down_rounded,
+                        color: const Color(0xFF9FB0C0),
+                      ),
+                    ],
+                  ),
+                ),
+              ),
+              Padding(
+                padding: const EdgeInsets.fromLTRB(12, 0, 12, 11),
+                child: Wrap(
+                  spacing: 6,
+                  runSpacing: 6,
+                  children: [
+                    _ConsoleStatusChip(
+                      key: const ValueKey('shared-ws-status'),
+                      label: connected
+                          ? S.of(context).websocketConnected
+                          : S.of(context).websocketDisconnected,
+                      color: connected
+                          ? const Color(0xFF4DD58A)
+                          : const Color(0xFFFF6B6B),
+                    ),
+                    _ConsoleStatusChip(
+                      label: subscribed
+                          ? S.of(context).channelSubscribed
+                          : S.of(context).channelNotSubscribed,
+                      color: subscribed
+                          ? const Color(0xFF4DD58A)
+                          : const Color(0xFFFFC857),
+                    ),
+                    _ConsoleStatusChip(
+                      label: fastSyncEnabled ? 'POLL 2s' : 'POLL 30s',
+                      color: fastSyncEnabled
+                          ? const Color(0xFFFFC857)
+                          : const Color(0xFF67B7FF),
+                    ),
+                  ],
+                ),
+              ),
+              AnimatedCrossFade(
+                duration: const Duration(milliseconds: 180),
+                crossFadeState: expanded
+                    ? CrossFadeState.showFirst
+                    : CrossFadeState.showSecond,
+                firstChild: Container(
+                  width: double.infinity,
+                  constraints: const BoxConstraints(maxHeight: 220),
+                  decoration: const BoxDecoration(
+                    border: Border(top: BorderSide(color: border)),
+                  ),
+                  child: lines.isEmpty
+                      ? Padding(
+                          padding: const EdgeInsets.all(14),
+                          child: Text(
+                            S.of(context).realtimeHistoryEmpty,
+                            style: const TextStyle(
+                              color: Color(0xFF7F92A4),
+                              fontFamily: 'monospace',
+                              fontSize: 12,
+                            ),
+                          ),
+                        )
+                      : ListView.separated(
+                          shrinkWrap: true,
+                          padding: const EdgeInsets.symmetric(vertical: 7),
+                          itemCount: lines.length,
+                          separatorBuilder: (_, __) => const Divider(
+                            height: 1,
+                            color: Color(0xFF202C37),
+                          ),
+                          itemBuilder: (context, index) =>
+                              _ConsoleLogRow(line: lines[index]),
+                        ),
+                ),
+                secondChild: const SizedBox.shrink(),
+              ),
+            ],
+          ),
+        ),
+      ),
+    );
+  }
+}
+
+class _ConsoleStatusChip extends StatelessWidget {
+  const _ConsoleStatusChip({
+    super.key,
+    required this.label,
+    required this.color,
+  });
+
+  final String label;
+  final Color color;
+
+  @override
+  Widget build(BuildContext context) {
+    return Container(
+      padding: const EdgeInsets.symmetric(horizontal: 8, vertical: 4),
+      decoration: BoxDecoration(
+        color: color.withValues(alpha: .12),
+        borderRadius: BorderRadius.circular(20),
+        border: Border.all(color: color.withValues(alpha: .38)),
+      ),
+      child: Text(
+        label,
+        style: TextStyle(
+          color: color,
+          fontFamily: 'monospace',
+          fontSize: 10.5,
+          fontWeight: FontWeight.w700,
+        ),
+      ),
+    );
+  }
+}
+
+class _ConsoleLogRow extends StatelessWidget {
+  const _ConsoleLogRow({required this.line});
+
+  final _RealtimeConsoleLine line;
+
+  @override
+  Widget build(BuildContext context) {
+    final color = line.isError
+        ? const Color(0xFFFF7B7B)
+        : line.isSuccess
+            ? const Color(0xFF62D99B)
+            : const Color(0xFFB8C7D5);
+    final time = '${line.timestamp.hour.toString().padLeft(2, '0')}:'
+        '${line.timestamp.minute.toString().padLeft(2, '0')}:'
+        '${line.timestamp.second.toString().padLeft(2, '0')}';
+    final message = line.message.replaceAll(RegExp(r'\s+'), ' ').trim();
+
+    return Padding(
+      padding: const EdgeInsets.symmetric(horizontal: 11, vertical: 7),
+      child: Text.rich(
+        TextSpan(
+          children: [
+            TextSpan(
+              text: '$time  ',
+              style: const TextStyle(color: Color(0xFF708294)),
+            ),
+            TextSpan(
+              text: '${line.source.padRight(4)} ',
+              style: TextStyle(
+                color: line.source == 'WS'
+                    ? const Color(0xFFC792EA)
+                    : const Color(0xFF67B7FF),
+                fontWeight: FontWeight.w700,
+              ),
+            ),
+            TextSpan(text: message, style: TextStyle(color: color)),
+          ],
+        ),
+        maxLines: 3,
+        overflow: TextOverflow.ellipsis,
+        style: const TextStyle(
+          fontFamily: 'monospace',
+          fontSize: 11.5,
+          height: 1.3,
+        ),
+      ),
+    );
+  }
+}
+
 class _SharedEmptyState extends StatelessWidget {
   const _SharedEmptyState();
 
@@ -567,21 +853,57 @@ class _SharedEmptyState extends StatelessWidget {
 class _SharedTasksScreenState extends State<SharedTasksScreen> {
   final TaskService _service = TaskService();
   Timer? _pollTimer;
+  StreamSubscription<RealtimeLogEntry>? _realtimeLogSubscription;
+  StreamSubscription<SyncLogEntry>? _syncLogSubscription;
   bool _syncing = false;
+  bool _fastSyncEnabled = false;
+  bool _consoleExpanded = true;
 
   @override
   void initState() {
     super.initState();
+    _realtimeLogSubscription =
+        OfflineRuntime.realtimeSync?.logStream.listen((_) {
+      if (mounted) setState(() {});
+    });
+    _syncLogSubscription = OfflineRuntime.syncEngine?.logStream.listen((_) {
+      if (mounted) setState(() {});
+    });
     WidgetsBinding.instance.addPostFrameCallback((_) => _syncNow());
+    _startFallbackSync();
+  }
+
+  void _startFallbackSync() {
+    _pollTimer?.cancel();
+    _pollTimer = null;
     _pollTimer = Timer.periodic(
-      const Duration(seconds: 2),
+      Duration(seconds: _fastSyncEnabled ? 2 : 30),
       (_) => _syncNow(),
     );
+  }
+
+  void _toggleFallbackSync() {
+    setState(() => _fastSyncEnabled = !_fastSyncEnabled);
+    _startFallbackSync();
+    if (_fastSyncEnabled) unawaited(_syncNow());
+    final message = _fastSyncEnabled
+        ? S.of(context).fastSyncEnabled
+        : S.of(context).defaultSyncEnabled;
+    ScaffoldMessenger.of(context)
+      ..hideCurrentSnackBar()
+      ..showSnackBar(
+        SnackBar(
+          content: Text(message),
+          duration: const Duration(seconds: 2),
+        ),
+      );
   }
 
   @override
   void dispose() {
     _pollTimer?.cancel();
+    _realtimeLogSubscription?.cancel();
+    _syncLogSubscription?.cancel();
     super.dispose();
   }
 
@@ -592,9 +914,11 @@ class _SharedTasksScreenState extends State<SharedTasksScreen> {
 
   Future<void> _syncNow() async {
     if (!mounted || _syncing) return;
+    final syncEngine = OfflineRuntime.syncEngine;
+    if (syncEngine == null) return;
     _syncing = true;
     try {
-      await OfflineRuntime.syncEngine?.synchronize();
+      await syncEngine.synchronize();
       await _load();
     } finally {
       _syncing = false;
@@ -735,6 +1059,35 @@ class _SharedTasksScreenState extends State<SharedTasksScreen> {
     await _load();
   }
 
+  List<_RealtimeConsoleLine> _consoleLines() {
+    final lines = <_RealtimeConsoleLine>[
+      ...?OfflineRuntime.realtimeSync?.logs.map(
+        (entry) => _RealtimeConsoleLine(
+          timestamp: entry.timestamp,
+          source: 'WS',
+          message: entry.message,
+          isError: entry.isError,
+          isSuccess: entry.message.contains('connected:') ||
+              entry.message.contains('subscription succeeded') ||
+              entry.message.contains('event received'),
+        ),
+      ),
+      ...?OfflineRuntime.syncEngine?.logs.map(
+        (entry) => _RealtimeConsoleLine(
+          timestamp: entry.timestamp,
+          source: 'SYNC',
+          message: entry.details?.isNotEmpty == true
+              ? '${entry.title} — ${entry.details}'
+              : entry.title,
+          isError: entry.kind == SyncLogKind.error,
+          isSuccess: entry.kind == SyncLogKind.success ||
+              entry.kind == SyncLogKind.received,
+        ),
+      ),
+    ]..sort((a, b) => b.timestamp.compareTo(a.timestamp));
+    return lines.take(60).toList(growable: false);
+  }
+
   String _ymd(DateTime date) => '${date.year.toString().padLeft(4, '0')}-'
       '${date.month.toString().padLeft(2, '0')}-'
       '${date.day.toString().padLeft(2, '0')}';
@@ -758,6 +1111,21 @@ class _SharedTasksScreenState extends State<SharedTasksScreen> {
         surfaceTintColor: Colors.transparent,
         actions: [
           IconButton(
+            key: const ValueKey('shared-fallback-sync-toggle'),
+            tooltip: _fastSyncEnabled
+                ? S.of(context).defaultSyncEnabled
+                : S.of(context).enableFastSync,
+            onPressed: _toggleFallbackSync,
+            icon: Icon(
+              _fastSyncEnabled
+                  ? Icons.speed_rounded
+                  : Icons.cloud_sync_outlined,
+              color: _fastSyncEnabled
+                  ? const Color(0xFFF59E0B)
+                  : ThemeColors.primary,
+            ),
+          ),
+          IconButton(
             tooltip: S.of(context).refresh,
             onPressed: _syncing ? null : _syncNow,
             icon: AnimatedSwitcher(
@@ -775,34 +1143,48 @@ class _SharedTasksScreenState extends State<SharedTasksScreen> {
           const SizedBox(width: 8),
         ],
       ),
-      body: tasks.isEmpty
-          ? const _SharedEmptyState()
-          : RefreshIndicator(
-              onRefresh: _syncNow,
-              child: ListView.builder(
-                padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
-                itemCount: tasks.length + 1,
-                itemBuilder: (context, index) {
-                  if (index == 0) {
-                    return _SharedSummary(
-                      total: tasks.length,
-                      completed: completed,
-                    );
-                  }
-                  final task = tasks[index - 1];
-                  final canEdit = task.collaborationRole != 'viewer';
-                  return _SharedTaskCard(
-                    key: ValueKey(task.id),
-                    task: task,
-                    canEdit: canEdit,
-                    onToggle: () => _toggle(task),
-                    onToggleSubtask: _toggleSubtask,
-                    onEdit: () => _edit(task),
-                    onParticipants: () => showCollaboratorsSheet(context, task),
-                  );
-                },
-              ),
-            ),
+      body: RefreshIndicator(
+        onRefresh: _syncNow,
+        child: ListView.builder(
+          padding: const EdgeInsets.fromLTRB(16, 8, 16, 28),
+          itemCount: tasks.isEmpty ? 2 : tasks.length + 2,
+          itemBuilder: (context, index) {
+            if (index == 0) {
+              final realtime = OfflineRuntime.realtimeSync;
+              return _RealtimeConsole(
+                connected: realtime?.isConnected == true,
+                subscribed: realtime?.isSubscribed == true,
+                fastSyncEnabled: _fastSyncEnabled,
+                syncRunning:
+                    _syncing || OfflineRuntime.syncEngine?.isRunning == true,
+                expanded: _consoleExpanded,
+                lines: _consoleLines(),
+                onToggleExpanded: () => setState(
+                  () => _consoleExpanded = !_consoleExpanded,
+                ),
+              );
+            }
+            if (tasks.isEmpty) return const _SharedEmptyState();
+            if (index == 1) {
+              return _SharedSummary(
+                total: tasks.length,
+                completed: completed,
+              );
+            }
+            final task = tasks[index - 2];
+            final canEdit = task.collaborationRole != 'viewer';
+            return _SharedTaskCard(
+              key: ValueKey(task.id),
+              task: task,
+              canEdit: canEdit,
+              onToggle: () => _toggle(task),
+              onToggleSubtask: _toggleSubtask,
+              onEdit: () => _edit(task),
+              onParticipants: () => showCollaboratorsSheet(context, task),
+            );
+          },
+        ),
+      ),
     );
   }
 }

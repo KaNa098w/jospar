@@ -20,11 +20,14 @@ void sortTasks(List<TaskItems> tasks) {
     final positionComparison = (a.position ?? 0).compareTo(b.position ?? 0);
     if (positionComparison != 0) return positionComparison;
 
+    // При одинаковой ручной позиции новая задача всегда идёт первой
+    // внутри своего раздела.
+    final recencyComparison = (b.createdAt ?? b.updatedAt ?? '')
+        .compareTo(a.createdAt ?? a.updatedAt ?? '');
+    if (recencyComparison != 0) return recencyComparison;
+
     final dateComparison = aDate.compareTo(bDate);
     if (dateComparison != 0) return dateComparison;
-
-    // Новая задача с начальной позицией 0 показывается над прежней первой.
-    return (b.updatedAt ?? b.createdAt ?? '')
-        .compareTo(a.updatedAt ?? a.createdAt ?? '');
+    return 0;
   });
 }

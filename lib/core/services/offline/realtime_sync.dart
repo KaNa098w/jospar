@@ -7,6 +7,18 @@ import 'package:jospar/core/services/auth_storage.dart';
 import 'package:jospar/core/services/offline/sync_engine.dart';
 import 'package:pusher_reverb_flutter/pusher_reverb_flutter.dart';
 
+class RealtimeLogEntry {
+  const RealtimeLogEntry({
+    required this.timestamp,
+    required this.message,
+    required this.isError,
+  });
+
+  final DateTime timestamp;
+  final String message;
+  final bool isError;
+}
+
 class RealtimeSync {
   static const _defaultAppKey =
       'a7d26ec594a832be62a5a1c7e27026732fdb4200d965e16d6a70e709cdc92e60';
@@ -35,9 +47,14 @@ class RealtimeSync {
   bool _resettingClient = false;
   int _retryAttempt = 0;
   int _connectionFailures = 0;
+  final StreamController<RealtimeLogEntry> _logController =
+      StreamController<RealtimeLogEntry>.broadcast();
+  final List<RealtimeLogEntry> _logs = <RealtimeLogEntry>[];
 
   bool get isConnected => _connected;
   bool get isSubscribed => _subscribed;
+  Stream<RealtimeLogEntry> get logStream => _logController.stream;
+  List<RealtimeLogEntry> get logs => List.unmodifiable(_logs);
 
   void start() {
     if (_started) return;
@@ -249,20 +266,21 @@ class RealtimeSync {
   void _debouncedPull() {
     _debounceTimer?.cancel();
     _debounceTimer = Timer(
-      const Duration(milliseconds: 100),
+      const Duration(milliseconds: 250),
       _pullAfterSubscription,
     );
   }
 
   void _scheduleRetry() {
     if (!_started || appKey.isEmpty || _retryTimer != null) return;
-    const delays = [1, 2, 5, 10, 30];
+    const delays = [2, 5, 10, 30];
     final delay = delays[_retryAttempt.clamp(0, delays.length - 1)];
     _retryAttempt++;
     _log('reconnect scheduled delay=${delay}s');
     _retryTimer = Timer(Duration(seconds: delay), () {
       _retryTimer = null;
       if (!_started) return;
+      unawaited(syncEngine.synchronize());
       if (_connected) {
         _subscribeToCurrentUser();
       } else if (_client == null) {
@@ -344,7 +362,19 @@ class RealtimeSync {
     _client = null;
   }
 
-  static void _log(String message) {
+  void _log(String message) {
+    final normalized = message.toLowerCase();
+    final entry = RealtimeLogEntry(
+      timestamp: DateTime.now(),
+      message: message,
+      isError: normalized.contains('error') ||
+          normalized.contains('failed') ||
+          normalized.contains('disconnected') ||
+          normalized.contains('missing'),
+    );
+    _logs.add(entry);
+    if (_logs.length > 200) _logs.removeAt(0);
+    _logController.add(entry);
     if (kDebugMode) debugPrint('[Realtime] $message');
   }
 

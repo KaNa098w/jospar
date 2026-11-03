@@ -62,11 +62,14 @@ void main() {
     final tasks = await db.select(db.tasksTable).get();
     final outbox = await db.select(db.outboxTable).get();
 
-    expect(db.schemaVersion, 3);
+    expect(db.schemaVersion, 4);
     expect(tasks.single.serverId, 'old-task');
     expect(tasks.single.name, 'Preserved task');
     expect(tasks.single.accountId, 'anonymous');
     expect(tasks.single.version, 0);
+    expect(tasks.single.completedByUserId, isNull);
+    expect(tasks.single.completedByJson, isNull);
+    expect(tasks.single.completedAt, isNull);
     expect(outbox, isEmpty);
     expect(await db.select(db.syncStatesTable).get(), isEmpty);
     expect(await db.select(db.collaboratorsTable).get(), isEmpty);

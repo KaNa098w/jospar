@@ -640,6 +640,24 @@ class $TasksTableTable extends TasksTable
       defaultConstraints: GeneratedColumn.constraintIsAlways(
           'CHECK ("is_completed" IN (0, 1))'),
       defaultValue: const Constant(false));
+  static const VerificationMeta _completedByUserIdMeta =
+      const VerificationMeta('completedByUserId');
+  @override
+  late final GeneratedColumn<String> completedByUserId =
+      GeneratedColumn<String>('completed_by_user_id', aliasedName, true,
+          type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _completedByJsonMeta =
+      const VerificationMeta('completedByJson');
+  @override
+  late final GeneratedColumn<String> completedByJson = GeneratedColumn<String>(
+      'completed_by_json', aliasedName, true,
+      type: DriftSqlType.string, requiredDuringInsert: false);
+  static const VerificationMeta _completedAtMeta =
+      const VerificationMeta('completedAt');
+  @override
+  late final GeneratedColumn<DateTime> completedAt = GeneratedColumn<DateTime>(
+      'completed_at', aliasedName, true,
+      type: DriftSqlType.dateTime, requiredDuringInsert: false);
   static const VerificationMeta _trashedMeta =
       const VerificationMeta('trashed');
   @override
@@ -771,6 +789,9 @@ class $TasksTableTable extends TasksTable
         note,
         notificationTime,
         isCompleted,
+        completedByUserId,
+        completedByJson,
+        completedAt,
         trashed,
         urgency,
         position,
@@ -836,6 +857,24 @@ class $TasksTableTable extends TasksTable
           _isCompletedMeta,
           isCompleted.isAcceptableOrUnknown(
               data['is_completed']!, _isCompletedMeta));
+    }
+    if (data.containsKey('completed_by_user_id')) {
+      context.handle(
+          _completedByUserIdMeta,
+          completedByUserId.isAcceptableOrUnknown(
+              data['completed_by_user_id']!, _completedByUserIdMeta));
+    }
+    if (data.containsKey('completed_by_json')) {
+      context.handle(
+          _completedByJsonMeta,
+          completedByJson.isAcceptableOrUnknown(
+              data['completed_by_json']!, _completedByJsonMeta));
+    }
+    if (data.containsKey('completed_at')) {
+      context.handle(
+          _completedAtMeta,
+          completedAt.isAcceptableOrUnknown(
+              data['completed_at']!, _completedAtMeta));
     }
     if (data.containsKey('trashed')) {
       context.handle(_trashedMeta,
@@ -942,6 +981,12 @@ class $TasksTableTable extends TasksTable
           DriftSqlType.string, data['${effectivePrefix}notification_time']),
       isCompleted: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}is_completed'])!,
+      completedByUserId: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}completed_by_user_id']),
+      completedByJson: attachedDatabase.typeMapping.read(
+          DriftSqlType.string, data['${effectivePrefix}completed_by_json']),
+      completedAt: attachedDatabase.typeMapping
+          .read(DriftSqlType.dateTime, data['${effectivePrefix}completed_at']),
       trashed: attachedDatabase.typeMapping
           .read(DriftSqlType.bool, data['${effectivePrefix}trashed'])!,
       urgency: attachedDatabase.typeMapping
@@ -994,6 +1039,9 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
   final String? note;
   final String? notificationTime;
   final bool isCompleted;
+  final String? completedByUserId;
+  final String? completedByJson;
+  final DateTime? completedAt;
   final bool trashed;
   final String? urgency;
   final int? position;
@@ -1020,6 +1068,9 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
       this.note,
       this.notificationTime,
       required this.isCompleted,
+      this.completedByUserId,
+      this.completedByJson,
+      this.completedAt,
       required this.trashed,
       this.urgency,
       this.position,
@@ -1056,6 +1107,15 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
       map['notification_time'] = Variable<String>(notificationTime);
     }
     map['is_completed'] = Variable<bool>(isCompleted);
+    if (!nullToAbsent || completedByUserId != null) {
+      map['completed_by_user_id'] = Variable<String>(completedByUserId);
+    }
+    if (!nullToAbsent || completedByJson != null) {
+      map['completed_by_json'] = Variable<String>(completedByJson);
+    }
+    if (!nullToAbsent || completedAt != null) {
+      map['completed_at'] = Variable<DateTime>(completedAt);
+    }
     map['trashed'] = Variable<bool>(trashed);
     if (!nullToAbsent || urgency != null) {
       map['urgency'] = Variable<String>(urgency);
@@ -1114,6 +1174,15 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
           ? const Value.absent()
           : Value(notificationTime),
       isCompleted: Value(isCompleted),
+      completedByUserId: completedByUserId == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedByUserId),
+      completedByJson: completedByJson == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedByJson),
+      completedAt: completedAt == null && nullToAbsent
+          ? const Value.absent()
+          : Value(completedAt),
       trashed: Value(trashed),
       urgency: urgency == null && nullToAbsent
           ? const Value.absent()
@@ -1166,6 +1235,10 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
       note: serializer.fromJson<String?>(json['note']),
       notificationTime: serializer.fromJson<String?>(json['notificationTime']),
       isCompleted: serializer.fromJson<bool>(json['isCompleted']),
+      completedByUserId:
+          serializer.fromJson<String?>(json['completedByUserId']),
+      completedByJson: serializer.fromJson<String?>(json['completedByJson']),
+      completedAt: serializer.fromJson<DateTime?>(json['completedAt']),
       trashed: serializer.fromJson<bool>(json['trashed']),
       urgency: serializer.fromJson<String?>(json['urgency']),
       position: serializer.fromJson<int?>(json['position']),
@@ -1199,6 +1272,9 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
       'note': serializer.toJson<String?>(note),
       'notificationTime': serializer.toJson<String?>(notificationTime),
       'isCompleted': serializer.toJson<bool>(isCompleted),
+      'completedByUserId': serializer.toJson<String?>(completedByUserId),
+      'completedByJson': serializer.toJson<String?>(completedByJson),
+      'completedAt': serializer.toJson<DateTime?>(completedAt),
       'trashed': serializer.toJson<bool>(trashed),
       'urgency': serializer.toJson<String?>(urgency),
       'position': serializer.toJson<int?>(position),
@@ -1228,6 +1304,9 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
           Value<String?> note = const Value.absent(),
           Value<String?> notificationTime = const Value.absent(),
           bool? isCompleted,
+          Value<String?> completedByUserId = const Value.absent(),
+          Value<String?> completedByJson = const Value.absent(),
+          Value<DateTime?> completedAt = const Value.absent(),
           bool? trashed,
           Value<String?> urgency = const Value.absent(),
           Value<int?> position = const Value.absent(),
@@ -1256,6 +1335,13 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
             ? notificationTime.value
             : this.notificationTime,
         isCompleted: isCompleted ?? this.isCompleted,
+        completedByUserId: completedByUserId.present
+            ? completedByUserId.value
+            : this.completedByUserId,
+        completedByJson: completedByJson.present
+            ? completedByJson.value
+            : this.completedByJson,
+        completedAt: completedAt.present ? completedAt.value : this.completedAt,
         trashed: trashed ?? this.trashed,
         urgency: urgency.present ? urgency.value : this.urgency,
         position: position.present ? position.value : this.position,
@@ -1297,6 +1383,14 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
           : this.notificationTime,
       isCompleted:
           data.isCompleted.present ? data.isCompleted.value : this.isCompleted,
+      completedByUserId: data.completedByUserId.present
+          ? data.completedByUserId.value
+          : this.completedByUserId,
+      completedByJson: data.completedByJson.present
+          ? data.completedByJson.value
+          : this.completedByJson,
+      completedAt:
+          data.completedAt.present ? data.completedAt.value : this.completedAt,
       trashed: data.trashed.present ? data.trashed.value : this.trashed,
       urgency: data.urgency.present ? data.urgency.value : this.urgency,
       position: data.position.present ? data.position.value : this.position,
@@ -1340,6 +1434,9 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
           ..write('note: $note, ')
           ..write('notificationTime: $notificationTime, ')
           ..write('isCompleted: $isCompleted, ')
+          ..write('completedByUserId: $completedByUserId, ')
+          ..write('completedByJson: $completedByJson, ')
+          ..write('completedAt: $completedAt, ')
           ..write('trashed: $trashed, ')
           ..write('urgency: $urgency, ')
           ..write('position: $position, ')
@@ -1371,6 +1468,9 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
         note,
         notificationTime,
         isCompleted,
+        completedByUserId,
+        completedByJson,
+        completedAt,
         trashed,
         urgency,
         position,
@@ -1401,6 +1501,9 @@ class TasksTableData extends DataClass implements Insertable<TasksTableData> {
           other.note == this.note &&
           other.notificationTime == this.notificationTime &&
           other.isCompleted == this.isCompleted &&
+          other.completedByUserId == this.completedByUserId &&
+          other.completedByJson == this.completedByJson &&
+          other.completedAt == this.completedAt &&
           other.trashed == this.trashed &&
           other.urgency == this.urgency &&
           other.position == this.position &&
@@ -1429,6 +1532,9 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
   final Value<String?> note;
   final Value<String?> notificationTime;
   final Value<bool> isCompleted;
+  final Value<String?> completedByUserId;
+  final Value<String?> completedByJson;
+  final Value<DateTime?> completedAt;
   final Value<bool> trashed;
   final Value<String?> urgency;
   final Value<int?> position;
@@ -1455,6 +1561,9 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
     this.note = const Value.absent(),
     this.notificationTime = const Value.absent(),
     this.isCompleted = const Value.absent(),
+    this.completedByUserId = const Value.absent(),
+    this.completedByJson = const Value.absent(),
+    this.completedAt = const Value.absent(),
     this.trashed = const Value.absent(),
     this.urgency = const Value.absent(),
     this.position = const Value.absent(),
@@ -1482,6 +1591,9 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
     this.note = const Value.absent(),
     this.notificationTime = const Value.absent(),
     this.isCompleted = const Value.absent(),
+    this.completedByUserId = const Value.absent(),
+    this.completedByJson = const Value.absent(),
+    this.completedAt = const Value.absent(),
     this.trashed = const Value.absent(),
     this.urgency = const Value.absent(),
     this.position = const Value.absent(),
@@ -1509,6 +1621,9 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
     Expression<String>? note,
     Expression<String>? notificationTime,
     Expression<bool>? isCompleted,
+    Expression<String>? completedByUserId,
+    Expression<String>? completedByJson,
+    Expression<DateTime>? completedAt,
     Expression<bool>? trashed,
     Expression<String>? urgency,
     Expression<int>? position,
@@ -1536,6 +1651,9 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
       if (note != null) 'note': note,
       if (notificationTime != null) 'notification_time': notificationTime,
       if (isCompleted != null) 'is_completed': isCompleted,
+      if (completedByUserId != null) 'completed_by_user_id': completedByUserId,
+      if (completedByJson != null) 'completed_by_json': completedByJson,
+      if (completedAt != null) 'completed_at': completedAt,
       if (trashed != null) 'trashed': trashed,
       if (urgency != null) 'urgency': urgency,
       if (position != null) 'position': position,
@@ -1565,6 +1683,9 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
       Value<String?>? note,
       Value<String?>? notificationTime,
       Value<bool>? isCompleted,
+      Value<String?>? completedByUserId,
+      Value<String?>? completedByJson,
+      Value<DateTime?>? completedAt,
       Value<bool>? trashed,
       Value<String?>? urgency,
       Value<int?>? position,
@@ -1591,6 +1712,9 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
       note: note ?? this.note,
       notificationTime: notificationTime ?? this.notificationTime,
       isCompleted: isCompleted ?? this.isCompleted,
+      completedByUserId: completedByUserId ?? this.completedByUserId,
+      completedByJson: completedByJson ?? this.completedByJson,
+      completedAt: completedAt ?? this.completedAt,
       trashed: trashed ?? this.trashed,
       urgency: urgency ?? this.urgency,
       position: position ?? this.position,
@@ -1637,6 +1761,15 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
     }
     if (isCompleted.present) {
       map['is_completed'] = Variable<bool>(isCompleted.value);
+    }
+    if (completedByUserId.present) {
+      map['completed_by_user_id'] = Variable<String>(completedByUserId.value);
+    }
+    if (completedByJson.present) {
+      map['completed_by_json'] = Variable<String>(completedByJson.value);
+    }
+    if (completedAt.present) {
+      map['completed_at'] = Variable<DateTime>(completedAt.value);
     }
     if (trashed.present) {
       map['trashed'] = Variable<bool>(trashed.value);
@@ -1703,6 +1836,9 @@ class TasksTableCompanion extends UpdateCompanion<TasksTableData> {
           ..write('note: $note, ')
           ..write('notificationTime: $notificationTime, ')
           ..write('isCompleted: $isCompleted, ')
+          ..write('completedByUserId: $completedByUserId, ')
+          ..write('completedByJson: $completedByJson, ')
+          ..write('completedAt: $completedAt, ')
           ..write('trashed: $trashed, ')
           ..write('urgency: $urgency, ')
           ..write('position: $position, ')
@@ -3216,6 +3352,9 @@ typedef $$TasksTableTableCreateCompanionBuilder = TasksTableCompanion Function({
   Value<String?> note,
   Value<String?> notificationTime,
   Value<bool> isCompleted,
+  Value<String?> completedByUserId,
+  Value<String?> completedByJson,
+  Value<DateTime?> completedAt,
   Value<bool> trashed,
   Value<String?> urgency,
   Value<int?> position,
@@ -3243,6 +3382,9 @@ typedef $$TasksTableTableUpdateCompanionBuilder = TasksTableCompanion Function({
   Value<String?> note,
   Value<String?> notificationTime,
   Value<bool> isCompleted,
+  Value<String?> completedByUserId,
+  Value<String?> completedByJson,
+  Value<DateTime?> completedAt,
   Value<bool> trashed,
   Value<String?> urgency,
   Value<int?> position,
@@ -3295,6 +3437,17 @@ class $$TasksTableTableFilterComposer
 
   ColumnFilters<bool> get isCompleted => $composableBuilder(
       column: $table.isCompleted, builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get completedByUserId => $composableBuilder(
+      column: $table.completedByUserId,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<String> get completedByJson => $composableBuilder(
+      column: $table.completedByJson,
+      builder: (column) => ColumnFilters(column));
+
+  ColumnFilters<DateTime> get completedAt => $composableBuilder(
+      column: $table.completedAt, builder: (column) => ColumnFilters(column));
 
   ColumnFilters<bool> get trashed => $composableBuilder(
       column: $table.trashed, builder: (column) => ColumnFilters(column));
@@ -3387,6 +3540,17 @@ class $$TasksTableTableOrderingComposer
   ColumnOrderings<bool> get isCompleted => $composableBuilder(
       column: $table.isCompleted, builder: (column) => ColumnOrderings(column));
 
+  ColumnOrderings<String> get completedByUserId => $composableBuilder(
+      column: $table.completedByUserId,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<String> get completedByJson => $composableBuilder(
+      column: $table.completedByJson,
+      builder: (column) => ColumnOrderings(column));
+
+  ColumnOrderings<DateTime> get completedAt => $composableBuilder(
+      column: $table.completedAt, builder: (column) => ColumnOrderings(column));
+
   ColumnOrderings<bool> get trashed => $composableBuilder(
       column: $table.trashed, builder: (column) => ColumnOrderings(column));
 
@@ -3478,6 +3642,15 @@ class $$TasksTableTableAnnotationComposer
   GeneratedColumn<bool> get isCompleted => $composableBuilder(
       column: $table.isCompleted, builder: (column) => column);
 
+  GeneratedColumn<String> get completedByUserId => $composableBuilder(
+      column: $table.completedByUserId, builder: (column) => column);
+
+  GeneratedColumn<String> get completedByJson => $composableBuilder(
+      column: $table.completedByJson, builder: (column) => column);
+
+  GeneratedColumn<DateTime> get completedAt => $composableBuilder(
+      column: $table.completedAt, builder: (column) => column);
+
   GeneratedColumn<bool> get trashed =>
       $composableBuilder(column: $table.trashed, builder: (column) => column);
 
@@ -3561,6 +3734,9 @@ class $$TasksTableTableTableManager extends RootTableManager<
             Value<String?> note = const Value.absent(),
             Value<String?> notificationTime = const Value.absent(),
             Value<bool> isCompleted = const Value.absent(),
+            Value<String?> completedByUserId = const Value.absent(),
+            Value<String?> completedByJson = const Value.absent(),
+            Value<DateTime?> completedAt = const Value.absent(),
             Value<bool> trashed = const Value.absent(),
             Value<String?> urgency = const Value.absent(),
             Value<int?> position = const Value.absent(),
@@ -3588,6 +3764,9 @@ class $$TasksTableTableTableManager extends RootTableManager<
             note: note,
             notificationTime: notificationTime,
             isCompleted: isCompleted,
+            completedByUserId: completedByUserId,
+            completedByJson: completedByJson,
+            completedAt: completedAt,
             trashed: trashed,
             urgency: urgency,
             position: position,
@@ -3615,6 +3794,9 @@ class $$TasksTableTableTableManager extends RootTableManager<
             Value<String?> note = const Value.absent(),
             Value<String?> notificationTime = const Value.absent(),
             Value<bool> isCompleted = const Value.absent(),
+            Value<String?> completedByUserId = const Value.absent(),
+            Value<String?> completedByJson = const Value.absent(),
+            Value<DateTime?> completedAt = const Value.absent(),
             Value<bool> trashed = const Value.absent(),
             Value<String?> urgency = const Value.absent(),
             Value<int?> position = const Value.absent(),
@@ -3642,6 +3824,9 @@ class $$TasksTableTableTableManager extends RootTableManager<
             note: note,
             notificationTime: notificationTime,
             isCompleted: isCompleted,
+            completedByUserId: completedByUserId,
+            completedByJson: completedByJson,
+            completedAt: completedAt,
             trashed: trashed,
             urgency: urgency,
             position: position,

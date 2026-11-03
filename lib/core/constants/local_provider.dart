@@ -11,16 +11,14 @@ class LocaleProvider extends ChangeNotifier {
   Future<void> load() async {
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     final String? code = prefs.getString(_prefsKey);
-    if (code != null && code.isNotEmpty) {
-      _locale = Locale(code);
-      notifyListeners();
-    }
+    _locale = Locale(const ['ru', 'kk', 'en'].contains(code) ? code! : 'kk');
+    notifyListeners();
   }
 
   Future<void> setLocale(Locale locale) async {
-    _locale = locale;
-    notifyListeners();
     final SharedPreferences prefs = await SharedPreferences.getInstance();
     await prefs.setString(_prefsKey, locale.languageCode);
+    _locale = locale;
+    notifyListeners();
   }
 }

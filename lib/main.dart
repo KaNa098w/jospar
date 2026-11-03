@@ -10,6 +10,7 @@ import 'package:provider/provider.dart';
 import 'package:provider/single_child_widget.dart';
 import 'package:upgrader/upgrader.dart';
 import 'package:app_links/app_links.dart';
+import 'package:home_widget/home_widget.dart';
 
 import 'package:jospar/core/constants/router.dart';
 import 'package:jospar/core/constants/local_provider.dart';
@@ -19,35 +20,43 @@ import 'package:jospar/core/l10n/s.dart';
 import 'package:jospar/core/services/offline/offline_runtime.dart';
 import 'package:jospar/core/services/offline/sync_engine.dart';
 import 'package:jospar/core/services/offline/realtime_sync.dart';
-import 'package:jospar/core/services/social_auth_service.dart';
+import 'package:jospar/app/screens/preloader/startup_app.dart';
 import 'package:jospar/core/services/share_delivery_mode.dart';
-import 'package:jospar/core/services/reminder_service.dart';
+import 'package:jospar/core/services/home_widget_service.dart';
 
-Future<void> main() async {
+void main() {
   WidgetsFlutterBinding.ensureInitialized();
+  runApp(const StartupApp(initialize: _initializeApp));
+}
+
+Future<Widget> _initializeApp(void Function(String) onStage) async {
+  onStage('Настройка экрана');
   if (!kIsWeb &&
       (defaultTargetPlatform == TargetPlatform.android ||
           defaultTargetPlatform == TargetPlatform.iOS)) {
-    await SystemChrome.setPreferredOrientations(
-      const [DeviceOrientation.portraitUp],
-    );
+    // Orientation is cosmetic: a stalled or unavailable platform channel must
+    // not prevent opening the local database and showing tasks.
+    try {
+      await SystemChrome.setPreferredOrientations(
+        const [DeviceOrientation.portraitUp],
+      ).timeout(const Duration(seconds: 3));
+    } catch (error) {
+      debugPrint('[Startup] Orientation setup skipped: $error');
+    }
   }
-  if (kIsWeb ||
-      defaultTargetPlatform == TargetPlatform.android ||
-      defaultTargetPlatform == TargetPlatform.iOS ||
-      defaultTargetPlatform == TargetPlatform.macOS) {
-    await SocialAuthService().initialize();
-  }
-
+  // Google Sign-In initializes on demand in signInWithGoogle().
+  // A login plugin must not prevent opening local tasks.
+  onStage('Открытие локальных данных');
   // Hive открывается только для одноразовой миграции старых данных в SQLite.
   await Hive.initFlutter();
   await Hive.openBox('tasks_box');
   await Hive.openBox('task_lists_box');
+  onStage('Подготовка базы задач');
   await OfflineRuntime.initialize();
-  await ReminderService.instance.initialize();
   await Hive.box('tasks_box').close();
   await Hive.box('task_lists_box').close();
 
+  onStage('Загрузка языка и настроек');
   // локали
   await initializeDateFormatting('ru');
   await initializeDateFormatting('kk');
@@ -73,10 +82,23 @@ Future<void> main() async {
     globalProvider.refreshTaskLists(context, silent: true);
   }
 
+  onStage('Запуск синхронизации');
   final syncEngine = SyncEngine(
     outbox: OfflineRuntime.outbox,
     store: OfflineRuntime.store,
     onDataChanged: refreshLocalData,
+    onOperationError: (error) {
+      if (error.statusCode != 403) return;
+      final context = AppRouter.navigatorKey.currentContext;
+      if (context == null) return;
+      ScaffoldMessenger.maybeOf(context)?.showSnackBar(
+        SnackBar(
+          content: Text(
+            error.message ?? 'Недостаточно прав для выполнения операции',
+          ),
+        ),
+      );
+    },
   );
   OfflineRuntime.syncEngine = syncEngine;
   syncEngine.start();
@@ -84,15 +106,13 @@ Future<void> main() async {
   OfflineRuntime.realtimeSync = realtimeSync;
   realtimeSync.start();
 
-  runApp(
-    MultiProvider(
-      providers: <SingleChildWidget>[
-        ChangeNotifierProvider<GlobalProvider>.value(value: globalProvider),
-        ChangeNotifierProvider<LocaleProvider>.value(value: localeProvider),
-        ChangeNotifierProvider<AppThemeProvider>.value(value: appThemeProvider),
-      ],
-      child: MyApp(globalProvider: globalProvider),
-    ),
+  return MultiProvider(
+    providers: <SingleChildWidget>[
+      ChangeNotifierProvider<GlobalProvider>.value(value: globalProvider),
+      ChangeNotifierProvider<LocaleProvider>.value(value: localeProvider),
+      ChangeNotifierProvider<AppThemeProvider>.value(value: appThemeProvider),
+    ],
+    child: MyApp(globalProvider: globalProvider),
   );
 }
 
@@ -194,7 +214,7 @@ class _MyAppState extends State<MyApp> {
         final content = child ?? const SizedBox.shrink();
         final appContent = _AppLinkCoordinator(
           globalProvider: widget.globalProvider,
-          child: content,
+          child: _HomeWidgetSync(child: content),
         );
         final isMobileStore = !kIsWeb &&
             (defaultTargetPlatform == TargetPlatform.android ||
@@ -234,6 +254,7 @@ class _AppLinkCoordinator extends StatefulWidget {
 class _AppLinkCoordinatorState extends State<_AppLinkCoordinator> {
   final AppLinks _appLinks = AppLinks();
   StreamSubscription<Uri>? _subscription;
+  StreamSubscription<Uri?>? _widgetSubscription;
   String? _lastUri;
   DateTime? _lastUriAt;
 
@@ -244,7 +265,14 @@ class _AppLinkCoordinatorState extends State<_AppLinkCoordinator> {
       _handleUri,
       onError: (Object error) => debugPrint('[AppLinks] $error'),
     );
+    _widgetSubscription = HomeWidget.widgetClicked.listen(
+      (uri) {
+        if (uri != null) _handleUri(uri);
+      },
+      onError: (Object error) => debugPrint('[HomeWidget] click: $error'),
+    );
     unawaited(_loadInitialUri());
+    unawaited(_loadInitialWidgetUri());
   }
 
   Future<void> _loadInitialUri() async {
@@ -256,11 +284,16 @@ class _AppLinkCoordinatorState extends State<_AppLinkCoordinator> {
     }
   }
 
-  void _handleUri(Uri uri) {
-    final hash = extractShareHash(uri);
-    if (hash == null || hash.isEmpty) return;
-    debugPrint('[AppLinks] received share: $hash');
+  Future<void> _loadInitialWidgetUri() async {
+    try {
+      final uri = await HomeWidget.initiallyLaunchedFromHomeWidget();
+      if (uri != null) _handleUri(uri);
+    } catch (error) {
+      debugPrint('[HomeWidget] initial link failed: $error');
+    }
+  }
 
+  void _handleUri(Uri uri) {
     final now = DateTime.now();
     if (_lastUri == uri.toString() &&
         _lastUriAt != null &&
@@ -269,6 +302,12 @@ class _AppLinkCoordinatorState extends State<_AppLinkCoordinator> {
     }
     _lastUri = uri.toString();
     _lastUriAt = now;
+
+    if (_handleWidgetUri(uri)) return;
+
+    final hash = extractShareHash(uri);
+    if (hash == null || hash.isEmpty) return;
+    debugPrint('[AppLinks] received share: $hash');
 
     widget.globalProvider.setInComingHash(hash);
     final currentPath =
@@ -281,12 +320,99 @@ class _AppLinkCoordinatorState extends State<_AppLinkCoordinator> {
     }
   }
 
+  bool _handleWidgetUri(Uri uri) {
+    if (uri.scheme != 'jospar' || uri.host != 'widget') return false;
+    final action = uri.pathSegments.firstOrNull;
+    if (action == 'task') {
+      final taskId = uri.queryParameters['id'];
+      if (taskId == null || taskId.isEmpty) return true;
+      widget.globalProvider.setWidgetLaunchRequest(
+        WidgetLaunchRequest(taskId: taskId),
+      );
+    } else if (action == 'complete') {
+      final taskId = uri.queryParameters['id'];
+      if (taskId == null || taskId.isEmpty) return true;
+      widget.globalProvider.setWidgetLaunchRequest(
+        WidgetLaunchRequest(completeTaskId: taskId),
+      );
+    } else if (action == 'add') {
+      widget.globalProvider.setWidgetLaunchRequest(
+        WidgetLaunchRequest(
+          addDate: DateTime.tryParse(uri.queryParameters['date'] ?? ''),
+        ),
+      );
+    } else {
+      return false;
+    }
+    debugPrint('[HomeWidget] received action: $uri');
+    final currentPath =
+        AppRouter.router.routeInformationProvider.value.uri.path;
+    if (currentPath != '/tasks' && currentPath != '/preloader') {
+      AppRouter.router.go('/preloader');
+    }
+    return true;
+  }
+
   @override
   void dispose() {
     _subscription?.cancel();
+    _widgetSubscription?.cancel();
     super.dispose();
   }
 
   @override
   Widget build(BuildContext context) => widget.child;
+}
+
+class _HomeWidgetSync extends StatefulWidget {
+  const _HomeWidgetSync({required this.child});
+
+  final Widget child;
+
+  @override
+  State<_HomeWidgetSync> createState() => _HomeWidgetSyncState();
+}
+
+class _HomeWidgetSyncState extends State<_HomeWidgetSync> {
+  String? _lastSignature;
+
+  @override
+  Widget build(BuildContext context) {
+    final global = context.watch<GlobalProvider>();
+    final locale = context.watch<LocaleProvider>().locale.languageCode;
+    final primary = context.watch<AppThemeProvider>().primary;
+    final signature = <Object?>[
+      locale,
+      primary.toARGB32(),
+      for (final list in global.taskLists) ...[
+        list.id,
+        list.colorHex,
+      ],
+      for (final task in global.allApiTasks) ...[
+        task.id,
+        task.name,
+        task.date,
+        task.isCompleted,
+        task.trashed,
+        task.position,
+        task.taskListId,
+        task.updatedAt,
+      ],
+    ].join('|');
+    if (signature != _lastSignature) {
+      _lastSignature = signature;
+      WidgetsBinding.instance.addPostFrameCallback((_) {
+        if (!mounted || _lastSignature != signature) return;
+        unawaited(
+          HomeWidgetService.instance.update(
+            tasks: global.allApiTasks,
+            lists: global.taskLists,
+            languageCode: locale,
+            primaryColor: primary,
+          ),
+        );
+      });
+    }
+    return widget.child;
+  }
 }
